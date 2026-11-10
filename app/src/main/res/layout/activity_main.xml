@@ -63,6 +63,11 @@
         layout="@layout/qr_big"
         android:visibility="gone" />
 
+    <include
+        android:id="@+id/countryLayer"
+        layout="@layout/country"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/toast"
         android:layout_width="wrap_content"

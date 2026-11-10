@@ -43,13 +43,17 @@ class SongSearch(context: Context) {
 
     val usesOfficialApi: Boolean get() = apiKey.isNotBlank()
 
+    /** Results are ranked for this country, in its language. International = the TV's own setting. */
+    @Volatile var country: Country = Countries.INTERNATIONAL
+
     fun lookup(id: String): Song? = synchronized(known) { known[id] }
 
     /** Blocking; call off the main thread. */
     fun search(userQuery: String): List<Song> {
         val q = userQuery.trim().take(80)
         val query = if (q.contains("karaok", ignoreCase = true)) q else "$q karaoke"
-        val key = query.lowercase(Locale.ROOT)
+        val where = country
+        val key = where.code + "|" + query.lowercase(Locale.ROOT)   // each country has its own results
 
         synchronized(memCache) { memCache[key] }?.let { return it }
 
@@ -58,13 +62,13 @@ class SongSearch(context: Context) {
             var official = false
             val raw = if (apiKey.isNotBlank() && System.currentTimeMillis() > officialBlockedUntil) {
                 try {
-                    officialSearch(query).also { official = true }
+                    officialSearch(query, where).also { official = true }
                 } catch (e: QuotaException) {
                     officialBlockedUntil = System.currentTimeMillis() + 6 * 3600_000L
-                    webSearch(query)
+                    webSearch(query, where)
                 }
             } else {
-                webSearch(query)
+                webSearch(query, where)
             }
             val karaoke = raw.filter(::isKaraoke).filter(::isPlayable).distinctBy { it.id }.take(30)
             // The official API already left out videos that can't be embedded
@@ -187,14 +191,16 @@ class SongSearch(context: Context) {
 
     private class QuotaException : Exception()
 
-    private fun officialSearch(query: String): List<Song> {
+    private fun officialSearch(query: String, where: Country): List<Song> {
         val loc = Locale.getDefault()
+        val region = if (where.isInternational) loc.country else where.code
+        val language = if (where.isInternational) loc.language else where.relevanceLanguage
         val url = buildString {
             append("https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=40")
             append("&videoEmbeddable=true&videoSyndicated=true&fields=items(id/videoId,snippet(title,channelTitle,liveBroadcastContent))")
             append("&q=").append(enc(query))
-            if (loc.country.length == 2) append("&regionCode=").append(loc.country)
-            if (loc.language.isNotEmpty()) append("&relevanceLanguage=").append(loc.language)
+            if (region.length == 2) append("&regionCode=").append(region)
+            if (language.isNotEmpty()) append("&relevanceLanguage=").append(enc(language))
             append("&key=").append(enc(apiKey))
         }
         val items = JSONObject(httpGet(url)).optJSONArray("items") ?: JSONArray()
@@ -257,14 +263,16 @@ class SongSearch(context: Context) {
     // Key-less search through YouTube's website endpoint (streamed, low memory)
     // ------------------------------------------------------------------------------------
 
-    private fun webSearch(query: String): List<Song> {
+    private fun webSearch(query: String, where: Country): List<Song> {
         val loc = Locale.getDefault()
+        val hl = if (where.isInternational) loc.language.ifEmpty { "en" } else where.youtubeHl.ifEmpty { "en" }
+        val gl = if (where.isInternational) loc.country.ifEmpty { "US" } else where.code
         val body = JSONObject()
             .put("context", JSONObject().put("client", JSONObject()
                 .put("clientName", "WEB")
                 .put("clientVersion", WEB_CLIENT_VERSION)
-                .put("hl", loc.language.ifEmpty { "en" })
-                .put("gl", loc.country.ifEmpty { "US" })))
+                .put("hl", hl)
+                .put("gl", gl)))
             .put("query", query)
             .put("params", "EgIQAQ%3D%3D")   // filter: videos only
             .toString()
@@ -409,7 +417,10 @@ class SongSearch(context: Context) {
     companion object {
         private const val WEB_CLIENT_VERSION = "2.20251020.01.00"
 
-        private val KARAOKE_WORDS = listOf("karaoke", "karaokê", "sing along", "sing-along", "instrumental with lyrics")
+        private val KARAOKE_WORDS = listOf(
+            "karaoke", "karaokê", "karaoké", "sing along", "sing-along", "instrumental with lyrics", "videoke",
+            "カラオケ", "노래방", "караоке", "καραόκε", "كاريوكي", "คาราโอเกะ", "卡拉ok", "ktv", "伴奏",
+        )
         private val TRUSTED = listOf("zoom karaoke", "stingray karaoke", "karaoke")
         /** Channels whose videos refuse to play outside YouTube (reported on the Shield). */
         private val NO_EMBED_CHANNELS = listOf("sing king", "karafun")

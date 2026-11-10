@@ -135,6 +135,12 @@ class PartyBackend(
         queue.current?.let { o.put("now", JSONObject().put("singer", it.singer).put("title", it.song.title)) }
         val arr = JSONArray()
         queue.snapshot().forEach { arr.put(JSONObject().put("singer", it.singer).put("title", it.song.title)) }
+        // Phones show the same quick picks as the TV
+        val c = search.country
+        val picks = JSONArray()
+        Countries.picks(c).forEach { (label, q) -> picks.put(JSONArray().put(label).put(q)) }
+        o.put("country", JSONObject().put("code", c.code).put("name", c.name).put("flag", c.flag))
+        o.put("picks", picks)
         return o.put("queue", arr).toString()
     }
 

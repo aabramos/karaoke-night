@@ -54,7 +54,7 @@ input:focus{border-color:var(--cyan)}
 <h2>YOUR NAME</h2>
 <input id="name" maxlength="20" placeholder="Who's singing?" autocomplete="nickname">
 
-<h2>FIND A SONG</h2>
+<h2 id="findTitle">FIND A SONG</h2>
 <form class="row" id="sf"><input id="q" maxlength="80" placeholder="Song or artist…" enterkeyhint="search"><button class="btn">Go</button></form>
 <div class="chips" id="chips"></div>
 <div id="results"></div>
@@ -87,9 +87,16 @@ input:focus{border-color:var(--cyan)}
     });
   }
 
-  // ---- quick picks ----
-  [['🔥 Top hits','top hits'],['🇵🇹 Portuguese','músicas portuguesas'],['🕺 80s','80s hits'],['📼 90s','90s hits'],['🎸 Rock','rock classics'],['👫 Duets','duets'],['💔 Ballads','love ballads'],['🍻 Party','party songs']]
-    .forEach(function(p){ var c = el('button','chip',p[0]); c.onclick = function(){ $('q').value = p[1]; search(p[1]); }; $('chips').appendChild(c); });
+  // ---- quick picks: the same as on the TV, for the party's country ----
+  var region = null;
+  function setPicks(list){
+    var box = $('chips'); box.textContent = '';
+    (list || []).forEach(function(p){
+      if (!p || typeof p[0] !== 'string' || typeof p[1] !== 'string') return;
+      var c = el('button','chip',p[0]); c.onclick = function(){ $('q').value = p[1]; search(p[1]); }; box.appendChild(c);
+    });
+  }
+  setPicks([['🔥 Top hits','top hits'],['🕺 80s','80s hits'],['📼 90s','90s hits'],['🎸 Rock','rock classics'],['👫 Duets','duets'],['💔 Ballads','love ballads'],['🍻 Party','party songs']]);
 
   $('sf').onsubmit = function(e){ e.preventDefault(); var q = $('q').value.trim(); if (q) { $('q').blur(); search(q); } };
 
@@ -123,6 +130,12 @@ input:focus{border-color:var(--cyan)}
 
   function refresh(){
     api('/api/state').then(function(s){
+      var c = s.country || {};
+      if (s.picks && c.code !== region) {
+        region = c.code;
+        setPicks(s.picks);
+        $('findTitle').textContent = 'FIND A SONG' + (c.code ? ' · ' + (c.flag || '') + ' ' + (c.name || '') : '');
+      }
       if (s.now) { $('nowSinger').textContent = s.now.singer + ' is singing'; $('nowSong').textContent = s.now.title; }
       else { $('nowSinger').textContent = 'Waiting for the next singer…'; $('nowSong').textContent = 'Add a song below!'; }
       var q = $('queue'); q.textContent = '';

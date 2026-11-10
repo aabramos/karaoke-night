@@ -40,6 +40,8 @@ class SongBrowser(
         private set
     /** Called after each successful search with whether anything was found. */
     var onResults: ((Boolean) -> Unit)? = null
+    // Declared before init, which fills it
+    private var picks: List<Pair<String, String>> = emptyList()
 
     init {
         searchBox.setOnEditorActionListener { v, actionId, event ->
@@ -55,7 +57,15 @@ class SongBrowser(
                 true
             } else false
         }
-        QUICK_PICKS.forEachIndexed { i, (label, query) ->
+        setPicks(Countries.INTERNATIONAL_PICKS)
+    }
+
+    /** Replaces the quick-pick chips (they change with the party's country). */
+    fun setPicks(list: List<Pair<String, String>>) {
+        picks = list
+        chips.removeAllViews()
+        (chips.parent as? android.widget.HorizontalScrollView)?.scrollTo(0, 0)
+        list.forEachIndexed { i, (label, query) ->
             val chip = TextView(activity).apply {
                 text = label
                 textSize = 15f
@@ -73,8 +83,9 @@ class SongBrowser(
     }
 
     fun runQuickPick(index: Int) {
+        val pick = picks.getOrNull(index) ?: return
         selectChip(index)
-        run(QUICK_PICKS[index].second)
+        run(pick.second)
     }
 
     /** Search typed by the user (or by voice): fills the box and jumps to the results. */
@@ -191,19 +202,4 @@ class SongBrowser(
     }
 
     private fun px(dp: Int) = (dp * density).toInt()
-
-    companion object {
-        val QUICK_PICKS = listOf(
-            "🔥 Top hits" to "top hits",
-            "🇵🇹 Portuguese" to "músicas portuguesas",
-            "💃 Pop" to "pop hits",
-            "🎸 Rock" to "rock classics",
-            "🕺 80s" to "80s hits",
-            "📼 90s" to "90s hits",
-            "💔 Ballads" to "love ballads",
-            "👫 Duets" to "duets",
-            "🎬 Movies" to "movie songs",
-            "🍻 Party" to "party songs",
-        )
-    }
 }

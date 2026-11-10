@@ -3,6 +3,9 @@
 A karaoke app for the big screen, built for parties:
 
 - **Karaoke-only search** on YouTube, with quick picks (Top hits, Portuguese, 80s, 90s, Duets, Party…)
+- **Party country**: pick any country (all of them are listed) and the quick picks switch to music
+  from there (Fado and Pimba for Portugal, Sertanejo and MPB for Brazil…), while YouTube ranks every
+  search for that country and language. Guests' phones follow automatically
 - **Song queue** with singer names. Songs play one after another with a **"Next up: MARIA!"** countdown in between
 - **Guests add songs from their phones** by scanning the QR code on the TV, **without interrupting the current singer**
 - **Quiet lobby music** while people choose songs; it fades out when a song starts and back in afterwards
@@ -44,6 +47,7 @@ That's it. The queue is saved, so if someone exits the app by accident, everythi
 | Lobby | ▲ ▼ ◀ ▶ / OK | Move around, pick a song, open a queued song (sing next / remove) |
 | Lobby | 🎙 button (or the remote's search button) | Voice search: say a song or artist |
 | Lobby | QR card → OK | Big join code for guests' phones |
+| Lobby | 🌍 / flag button | Party country: every country, type a few letters to find one |
 | Lobby | 🏆 / 🎵 buttons | Hall of fame / lobby music on-off |
 | Lobby | BACK twice | Exit the app |
 | Next up | OK | Start now |
@@ -85,6 +89,19 @@ To get a key:
 3. Restrict it: **Application restrictions → Android apps**, package `com.karaoketv` and the SHA-1 shown by
    running `./gradlew signingReport` (use the line for the build you install). **API restrictions → YouTube Data API v3.**
 4. Add it to `local.properties` in the project folder: `YOUTUBE_API_KEY=AIza…` and rebuild.
+
+## Party country
+
+Press the 🌍 button (it shows the chosen flag afterwards) and pick a country, or type a few letters
+to find it. **International** is the original mix.
+
+- **Quick picks**: Portugal, Brazil, the US, the UK, Ireland, Canada, Australia, Spain, Mexico,
+  Argentina, Colombia, France, Italy, Germany, the Netherlands, the Philippines, Japan, South Korea
+  and India have hand-picked local favourites, searched in the local language. Every other country
+  gets picks built from its name and language (for example "Angola songs", "Polish songs").
+- **Search ranking**: every search, typed or by voice, from the TV or a phone, is ranked by YouTube
+  for that country and language. It favours local music; it doesn't hide anything else.
+- The choice is remembered, and each country keeps its own saved results.
 
 ## Looks right on any TV
 
@@ -158,7 +175,7 @@ It appears in the Shield's app row as **Karaoke Night**.
 
 | What | Where |
 |---|---|
-| Quick picks | `SongBrowser.kt` → `QUICK_PICKS` (and the list in `assets/remote.html` for phones) |
+| Quick picks | `Countries.kt`: `INTERNATIONAL_PICKS`, and `HAND` for a country's own picks (phones get the same ones) |
 | How generous the judge is | `Scores.kt`: `85 + 6 * rng.nextGaussian()`: raise 85 for higher scores, raise 6 for more spread |
 | Judge comments | `Scores.kt` → `lines` |
 | Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops without a gap); volume in `Audio.kt` → `LOBBY_VOLUME` |

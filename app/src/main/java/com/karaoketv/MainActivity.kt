@@ -30,6 +30,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
@@ -77,6 +78,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private lateinit var pickerLayer: View
     private lateinit var sheetLayer: View
     private lateinit var qrLayer: View
+    private lateinit var countryLayer: View
     private lateinit var toastView: TextView
     private lateinit var confetti: ConfettiView
     private lateinit var lobbyBrowser: SongBrowser
@@ -139,7 +141,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
         volume = prefs.getInt("music_volume", 80)
         queue = PartyQueue(ui).also { it.onChanged = ::onQueueChanged }
-        search = SongSearch(this)
+        search = SongSearch(this).also { it.country = Countries.byCode(prefs.getString("country", "")) }
         board = Leaderboard(this)
         music = LobbyMusic(this)
         sfx = Sfx(this)
@@ -155,6 +157,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         pickerLayer = findViewById(R.id.pickerLayer)
         sheetLayer = findViewById(R.id.sheetLayer)
         qrLayer = findViewById(R.id.qrLayer)
+        countryLayer = findViewById(R.id.countryLayer)
         toastView = findViewById(R.id.toast)
         confetti = findViewById(R.id.confetti)
 
@@ -176,6 +179,21 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
         click(R.id.btnBoard) { showBoard() }
         click(R.id.btnVoice) { voiceSearch() }
+        click(R.id.btnCountry) { showCountries() }
+        findViewById<EditText>(R.id.countryFilter).apply {
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    if (countryLayer.isShown) renderCountries(s?.toString().orEmpty(), focus = false)
+                }
+            })
+            setOnEditorActionListener { _, _, _ ->
+                hideKeyboard()
+                firstCountryButton()?.requestFocus()
+                true
+            }
+        }
         click(R.id.qrCard) { showBigQr() }
         click(R.id.bigQrClose) { hideBigQr() }
         click(R.id.btnMusic) {
@@ -196,6 +214,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
 
         updateMusicButton()
+        applyCountry()
         updateQr()
         QueueStore.restore(prefs, queue)   // songs survive an accidental exit
         goLobby()
@@ -317,6 +336,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         if (sheetLayer.isShown) { if (back) { if (first) cancelSheet(); return true }; return super.dispatchKeyEvent(e) }
         if (boardLayer.isShown) { if (back) { if (first) hideBoard(); return true }; return super.dispatchKeyEvent(e) }
         if (qrLayer.isShown) { if (back) { if (first) hideBigQr(); return true }; return super.dispatchKeyEvent(e) }
+        if (countryLayer.isShown) { if (back) { if (first) hideCountries(); return true }; return super.dispatchKeyEvent(e) }
 
         when (mode) {
             Mode.LOBBY -> {
@@ -1113,6 +1133,117 @@ class MainActivity : Activity(), PartyBackend.Listener {
         restoreFocus()
     }
 
+    // =====================================================================================
+    // Party country: every country, type to filter
+    // =====================================================================================
+
+    /** Quick picks and the flag button follow the chosen country. */
+    private fun applyCountry() {
+        val c = search.country
+        val picks = Countries.picks(c)
+        lobbyBrowser.setPicks(picks)
+        panelBrowser.setPicks(picks)
+        findViewById<TextView>(R.id.btnCountry).text = c.flag
+    }
+
+    private fun showCountries() {
+        overlayReturnFocus = currentFocus
+        findViewById<EditText>(R.id.countryFilter).setText("")
+        countryLayer.visibility = View.VISIBLE
+        popIn(countryLayer)
+        renderCountries("", focus = true)
+    }
+
+    private fun hideCountries() {
+        countryLayer.visibility = View.GONE
+        hideKeyboard()
+        findViewById<LinearLayout>(R.id.countryRows).removeAllViews()   // a few hundred views: free them
+        restoreFocus()
+    }
+
+    private fun renderCountries(filter: String, focus: Boolean) {
+        val rows = findViewById<LinearLayout>(R.id.countryRows)
+        rows.removeAllViews()
+        val current = search.country
+        var selected: View? = null
+        var count = 0
+
+        fun grid(list: List<Country>) {
+            list.chunked(4).forEach { chunk ->
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                chunk.forEach { c ->
+                    val b = countryButton(c, c.code == current.code)
+                    if (c.code == current.code && selected == null) selected = b
+                    row.addView(b, LinearLayout.LayoutParams(0, px(46), 1f).apply { setMargins(px(5), px(5), px(5), px(5)) })
+                    count++
+                }
+                repeat(4 - chunk.size) {
+                    row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f).apply { setMargins(px(5), 0, px(5), 0) })
+                }
+                rows.addView(row)
+            }
+        }
+        fun heading(text: String) = rows.addView(label(text, 13f, R.color.neon_cyan, bold = true).apply {
+            letterSpacing = 0.15f
+            setPadding(px(6), px(8), 0, px(2))
+        })
+
+        if (filter.isBlank()) {
+            val suggested = listOfNotNull(Countries.INTERNATIONAL, current.takeIf { !it.isInternational }, Countries.device())
+                .distinctBy { it.code }
+            heading("SUGGESTED")
+            grid(suggested)
+            heading("ALL COUNTRIES")
+            grid(Countries.all())
+        } else {
+            val world = listOf("international", "world", "global")
+            val f = filter.trim().lowercase()
+            val list = (if (world.any { it.startsWith(f) }) listOf(Countries.INTERNATIONAL) else emptyList()) +
+                Countries.all().filter { Countries.matches(it, filter) }
+            grid(list)
+        }
+        findViewById<View>(R.id.countryEmpty).visibility = if (count == 0) View.VISIBLE else View.GONE
+        findViewById<ScrollView>(R.id.countryScroll).scrollTo(0, 0)
+        if (focus) (selected ?: firstCountryButton())?.requestFocus()
+    }
+
+    private fun firstCountryButton(): View? {
+        val rows = findViewById<LinearLayout>(R.id.countryRows)
+        for (i in 0 until rows.childCount) {
+            val row = rows.getChildAt(i) as? LinearLayout ?: continue
+            row.getChildAt(0)?.takeIf { it.isFocusable }?.let { return it }
+        }
+        return null
+    }
+
+    private fun countryButton(c: Country, isCurrent: Boolean) = TextView(this).apply {
+        text = "${c.flag}  ${c.name}"
+        textSize = 15f
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        gravity = Gravity.CENTER_VERTICAL
+        setTextColor(getColor(R.color.text_main))
+        setBackgroundResource(R.drawable.chip_bg)
+        setPadding(px(14), 0, px(10), 0)
+        isFocusable = true
+        isClickable = true
+        isSelected = isCurrent
+        if (isCurrent) paint.isFakeBoldText = true
+        setOnClickListener { chooseCountry(c) }
+    }
+
+    private fun chooseCountry(c: Country) {
+        val changed = c.code != search.country.code
+        search.country = c
+        prefs.edit().putString("country", c.code).apply()
+        hideCountries()
+        if (!changed) return
+        applyCountry()
+        panelBrowser.clear()                    // reloads with the new picks next time it opens
+        lobbyBrowser.runQuickPick(0)
+        toast(if (c.isInternational) "🌍 International mix" else "${c.flag} ${c.name}: music from there comes first")
+    }
+
     // ---- voice search (remote's search/mic button or the 🎙 button) ----
 
     private fun voiceSearch() {
@@ -1260,10 +1391,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private fun hideAllOverlays() {
         listOf(pickerLayer, sheetLayer, boardLayer, qrLayer).forEach { it.visibility = View.GONE }
+        if (countryLayer.isShown) hideCountries()
         hideKeyboard()
     }
 
-    private fun anyOverlayOpen() = pickerLayer.isShown || sheetLayer.isShown || boardLayer.isShown || qrLayer.isShown
+    private fun anyOverlayOpen() = pickerLayer.isShown || sheetLayer.isShown || boardLayer.isShown || qrLayer.isShown ||
+        countryLayer.isShown
 
     private fun restoreFocus() {
         val v = overlayReturnFocus
