@@ -30,8 +30,11 @@ android {
         versionCode = 2
         versionName = "2.0"
         buildConfigField("String", "YOUTUBE_API_KEY", "\"${localProps.getProperty("YOUTUBE_API_KEY", "").trim()}\"")
-        // Only ship English resources from libraries (smaller APK)
-        resourceConfigurations += listOf("en")
+    }
+
+    // Only ship English resources from libraries (smaller APK)
+    androidResources {
+        localeFilters += listOf("en")
     }
 
     signingConfigs {
