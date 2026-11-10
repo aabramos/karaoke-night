@@ -10,7 +10,14 @@ data class Song(val id: String, val title: String, val channel: String, val dura
     val thumb: String get() = "https://i.ytimg.com/vi/$id/mqdefault.jpg"
 }
 
-data class QueueItem(val song: Song, val singer: String, val fromPhone: Boolean, val key: Long = nextKey()) {
+/** [retries]: how many times another version of the song was tried because a video refused to play. */
+data class QueueItem(
+    val song: Song,
+    val singer: String,
+    val fromPhone: Boolean,
+    val key: Long = nextKey(),
+    val retries: Int = 0,
+) {
     companion object {
         private var counter = 0L
         @Synchronized private fun nextKey() = ++counter

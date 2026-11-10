@@ -236,9 +236,20 @@ object TvScale {
     private const val BASE_H = 540f
 
     fun configuration(base: android.content.Context): android.content.res.Configuration {
+        // The app runs full screen (system bars hidden), so size the canvas from the whole physical
+        // screen. The plain display metrics leave out a phone's navigation bar, and edge-to-edge
+        // drawing would then push the right edge of the interface under it.
+        val real = android.graphics.Point()
+        runCatching {
+            val dmgr = base.getSystemService(android.hardware.display.DisplayManager::class.java)
+            @Suppress("DEPRECATION")
+            dmgr?.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.getRealSize(real)
+        }
         val dm = base.resources.displayMetrics
-        val w = max(dm.widthPixels, dm.heightPixels).toFloat()
-        val h = min(dm.widthPixels, dm.heightPixels).toFloat()
+        val pw = if (real.x > 0) real.x else dm.widthPixels
+        val ph = if (real.y > 0) real.y else dm.heightPixels
+        val w = max(pw, ph).toFloat()
+        val h = min(pw, ph).toFloat()
         val density = min(w / BASE_W, h / BASE_H).coerceAtLeast(0.75f)
         return android.content.res.Configuration(base.resources.configuration).apply {
             densityDpi = (density * 160f).toInt()

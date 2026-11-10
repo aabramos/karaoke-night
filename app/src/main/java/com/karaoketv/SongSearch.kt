@@ -55,9 +55,10 @@ class SongSearch(context: Context) {
 
         // Searches are kept on the Shield for 24 h: the lobby appears instantly and API quota is saved
         val filtered = readDiskCache(key) ?: run {
+            var official = false
             val raw = if (apiKey.isNotBlank() && System.currentTimeMillis() > officialBlockedUntil) {
                 try {
-                    officialSearch(query)
+                    officialSearch(query).also { official = true }
                 } catch (e: QuotaException) {
                     officialBlockedUntil = System.currentTimeMillis() + 6 * 3600_000L
                     webSearch(query)
@@ -65,15 +66,119 @@ class SongSearch(context: Context) {
             } else {
                 webSearch(query)
             }
-            raw.filter(::isKaraoke).distinctBy { it.id }.take(30).also { if (it.isNotEmpty()) writeDiskCache(key, it) }
+            val karaoke = raw.filter(::isKaraoke).filter(::isPlayable).distinctBy { it.id }.take(30)
+            // The official API already left out videos that can't be embedded
+            (if (official) karaoke else dropUnembeddable(karaoke)).also { if (it.isNotEmpty()) writeDiskCache(key, it) }
         }
         synchronized(memCache) { memCache[key] = filtered }
-        synchronized(known) { filtered.forEach { known[it.id] = it } }
-        return filtered
+        // Apply what we've learned since this list was saved (videos that refused to play)
+        val playable = filtered.filter(::isPlayable)
+        synchronized(known) { playable.forEach { known[it.id] = it } }
+        return playable
     }
 
     fun trimMemory() {
         synchronized(memCache) { memCache.clear() }
+    }
+
+    fun close() {
+        synchronized(this) { checker?.shutdownNow(); checker = null }
+    }
+
+    // ------------------------------------------------------------------------------------
+    // Can it play inside the app? Some owners (for example Sing King and KaraFun) turn off
+    // playback outside YouTube. No app setting gets around that, so those videos are hidden.
+    // ------------------------------------------------------------------------------------
+
+    private val playPrefs = app.getSharedPreferences("playable", Context.MODE_PRIVATE)
+    /** Videos that refused to play (oldest first), and how often each channel refused. Guarded by badIds. */
+    private val badIds = LinkedHashSet<String>()
+    private val strikes = HashMap<String, Int>()
+    private var checker: java.util.concurrent.ExecutorService? = null
+
+    init {
+        runCatching {
+            playPrefs.getString("ids", "")!!.split(',').filter(::isVideoId).forEach { badIds += it }
+            val o = JSONObject(playPrefs.getString("strikes", "{}")!!)
+            o.keys().forEach { strikes[it] = o.optInt(it) }
+        }
+    }
+
+    private fun channelKey(c: String) = c.lowercase(Locale.ROOT).trim()
+
+    fun isPlayable(s: Song): Boolean {
+        val ch = channelKey(s.channel)
+        if (NO_EMBED_CHANNELS.any { ch.contains(it) }) return false
+        synchronized(badIds) {
+            if (s.id in badIds) return false
+            return ch.isEmpty() || (strikes[ch] ?: 0) < CHANNEL_STRIKES
+        }
+    }
+
+    /** Remember a video that refused to play; a channel that refuses repeatedly is hidden entirely. */
+    fun markUnplayable(s: Song) {
+        synchronized(badIds) {
+            badIds.remove(s.id)
+            badIds.add(s.id)
+            while (badIds.size > 400) badIds.remove(badIds.first())
+            val ch = channelKey(s.channel)
+            if (ch.isNotEmpty()) strikes[ch] = (strikes[ch] ?: 0) + 1
+            val o = JSONObject()
+            strikes.entries.sortedByDescending { it.value }.take(200).forEach { o.put(it.key, it.value) }
+            playPrefs.edit().putString("ids", badIds.joinToString(",")).putString("strikes", o.toString()).apply()
+        }
+        synchronized(known) { known.remove(s.id) }
+    }
+
+    /**
+     * Asks YouTube's public oEmbed service about each result, in parallel. It answers 401 when the
+     * owner has turned off playback outside YouTube. No answer counts as playable; if such a video
+     * still refuses, the player finds another version of the song.
+     */
+    private fun dropUnembeddable(list: List<Song>): List<Song> {
+        if (list.isEmpty()) return list
+        val pool = synchronized(this) {
+            checker ?: java.util.concurrent.Executors.newFixedThreadPool(6) { r ->
+                Thread(r, "embed-check").apply { isDaemon = true }
+            }.also { checker = it }
+        }
+        val futures = runCatching {
+            pool.invokeAll(list.map { s -> java.util.concurrent.Callable { embedStatus(s.id) } }, 6, java.util.concurrent.TimeUnit.SECONDS)
+        }.getOrNull() ?: return list
+        val out = ArrayList<Song>(list.size)
+        futures.forEachIndexed { i, f ->
+            val code = if (f.isCancelled) 0 else runCatching { f.get() }.getOrDefault(0)
+            if (code == 401 || code == 403) markUnplayable(list[i]) else out += list[i]
+        }
+        return out.filter(::isPlayable)
+    }
+
+    private fun embedStatus(id: String): Int {
+        val url = "https://www.youtube.com/oembed?format=json&url=" + enc("https://www.youtube.com/watch?v=$id")
+        val c = URL(url).openConnection() as HttpURLConnection
+        return try {
+            c.connectTimeout = 4000; c.readTimeout = 4000
+            val code = c.responseCode
+            runCatching { (if (code in 200..299) c.inputStream else c.errorStream)?.use { it.skip(4096) } }
+            code
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    /**
+     * Blocking. Another karaoke video of the same song (used when a video refuses to play),
+     * or null if no close match is found.
+     */
+    fun alternativeFor(song: Song, avoid: Set<String>): Song? {
+        val name = songName(song.title)
+        val words = significantWords(name)
+        if (words.isEmpty()) return null
+        // Strict on purpose: "Greatest Showman - This Is Me" must not stand in for "Greatest Showman - Never Enough"
+        val needed = kotlin.math.ceil(words.size * 0.75).toInt()
+        return search(name).firstOrNull { s ->
+            s.id != song.id && s.id !in avoid && significantWords(s.title).count { it in words } >= needed
+        }
     }
 
     // ------------------------------------------------------------------------------------
@@ -305,7 +410,30 @@ class SongSearch(context: Context) {
         private const val WEB_CLIENT_VERSION = "2.20251020.01.00"
 
         private val KARAOKE_WORDS = listOf("karaoke", "karaokê", "sing along", "sing-along", "instrumental with lyrics")
-        private val TRUSTED = listOf("sing king", "karafun", "zoom karaoke", "stingray karaoke", "karaoke")
+        private val TRUSTED = listOf("zoom karaoke", "stingray karaoke", "karaoke")
+        /** Channels whose videos refuse to play outside YouTube (reported on the Shield). */
+        private val NO_EMBED_CHANNELS = listOf("sing king", "karafun")
+        private const val CHANNEL_STRIKES = 3
+
+        private val STOP_WORDS = setOf(
+            "the", "a", "an", "of", "and", "to", "in", "on", "de", "da", "do", "das", "dos", "e", "o", "os",
+            "la", "el", "le", "les", "y", "feat", "ft", "karaoke", "karaokê", "version", "versión", "versão",
+            "lyrics", "lyric", "instrumental", "official", "hd", "with", "sing", "along", "video", "audio", "key",
+        )
+
+        /** "Grease - Summer Nights (Karaoke Version) | Sing King" → "Grease - Summer Nights" */
+        fun songName(title: String): String =
+            title.substringBefore('|')
+                .replace(Regex("[(\\[{][^)\\]}]*[)\\]}]"), " ")
+                .replace(Regex("(?i)\\b(karaok[eê]|karafun|sing king|instrumental|lyrics?|version|official|hd)\\b"), " ")
+                .replace(Regex("\\s+"), " ")
+                .trim(' ', '-', '–', '—', ':', '·', '/')
+
+        fun significantWords(text: String): Set<String> =
+            text.lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{N}']+"))
+                .map { it.trim('\'') }
+                .filter { it.length >= 2 && it !in STOP_WORDS }
+                .toSet()
         private val BLOCKED = listOf(
             "reaction", "react ", "tutorial", "fail", "funny", "compilation", "vlog", "review",
             "behind the scenes", "how to sing", "lesson", "#shorts"

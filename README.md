@@ -10,6 +10,9 @@ A karaoke app for the big screen, built for parties:
 - **The judge**: drumroll, count-up, stars, a verdict, applause, and confetti + fanfare for 95+
 - **Hall of fame**: podium and top 10 for tonight and all time. Scores are saved automatically under each singer's name
 - **Works without a YouTube API key** (optional key for extra reliability, see below)
+- **Never stalls on a blocked video**: if a video's owner blocks playback outside YouTube, the app
+  finds another karaoke version of the same song for the same singer
+- Made for the TV, and also runs full screen on Android phones and tablets
 
 > The score is just for fun: it doesn't listen to the singer. Most scores land between ~78 and ~92,
 > 95+ happens about 1 song in 20, and a perfect 100 is very rare. Stopping a song early lowers the
@@ -140,7 +143,8 @@ It appears in the Shield's app row as **Karaoke Night**.
   is running and is released in the lobby.
 - Small thumbnails decoded at half memory, a capped image cache, and caches dropped when Android asks for memory.
 - Key-less search reads YouTube's reply as a stream instead of loading it all into memory.
-- Lobby music streams from the app instead of being loaded into memory; effects are tiny.
+- Lobby music streams from the app instead of being loaded into memory, and loops without a gap by
+  handing over between two players; effects are tiny.
 - No heavy libraries: no RecyclerView, image or QR libraries. The QR code generator and the phone server
   are built in. Release builds are shrunk with R8.
 - Pure Java/Kotlin with no native code, so it runs on the Shield's 32-bit (armeabi-v7a) and 64-bit setups alike.
@@ -157,7 +161,8 @@ It appears in the Shield's app row as **Karaoke Night**.
 | Quick picks | `SongBrowser.kt` → `QUICK_PICKS` (and the list in `assets/remote.html` for phones) |
 | How generous the judge is | `Scores.kt`: `85 + 6 * rng.nextGaussian()`: raise 85 for higher scores, raise 6 for more spread |
 | Judge comments | `Scores.kt` → `lines` |
-| Lobby music | Replace `res/raw/lobby.ogg` with any OGG file; volume in `Audio.kt` → `LOBBY_VOLUME` |
+| Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops without a gap); volume in `Audio.kt` → `LOBBY_VOLUME` |
+| Hidden channels | `SongSearch.kt` → `NO_EMBED_CHANNELS` |
 | Autostart delay | `MainActivity.kt` → `AUTOSTART_MS` (30 s) |
 | Surprise stage names | `MainActivity.kt` → `STAGE_NAMES` |
 | Fresh player every N songs | `MainActivity.kt` → `RECYCLE_PLAYER_AFTER` |
@@ -169,7 +174,11 @@ It appears in the Shield's app row as **Karaoke Night**.
 - **🎙 says voice search isn't available**: type instead; the remote's own microphone button opens Google Assistant, not this app.
 - **Phone says "Scan the QR code on the TV"**: scan again; the link includes the party key.
 - **"YouTube search is unavailable"** without a key: YouTube changed something. Add an API key (above).
-- **A video doesn't play**: some owners block playback outside YouTube. The app says so and skips to the next singer.
+- **A video doesn't play**: some owners block playback outside YouTube, and no app can get around
+  that. Sing King and KaraFun do this, so their videos are hidden from search. When another video
+  refuses, the app plays a different karaoke version of the same song instead (it tries twice, then
+  moves on), and remembers the refusal so that video no longer shows up. A channel that refuses three
+  times is hidden. To forget all of this, clear the app's storage in Android's app settings.
 - **Ads**: YouTube may show ads before some videos, as in any app using YouTube's official player.
 
 ---

@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.ConnectivityManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +19,8 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
@@ -106,6 +109,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private var overlayReturnFocus: View? = null
     private var sheetCancel: (() -> Unit)? = null
     private var songsOnThisPlayer = 0
+    /** Key of the queue item whose refused video is being replaced (0 = none). */
+    private var repairingKey = 0L
 
     // =====================================================================================
     // Lifecycle
@@ -129,6 +134,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        goFullScreen()
 
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
         volume = prefs.getInt("music_volume", 80)
@@ -196,6 +202,40 @@ class MainActivity : Activity(), PartyBackend.Listener {
         lobbyBrowser.runQuickPick(0)
     }
 
+    /**
+     * Phones and tablets: hide the status and navigation bars so the whole screen is the party.
+     * A swipe from the edge shows them briefly; they hide again by themselves. No effect on TVs.
+     */
+    private fun goFullScreen() {
+        val w = window
+        if (Build.VERSION.SDK_INT >= 28) {
+            w.attributes = w.attributes.apply {
+                layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30)
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            w.setDecorFitsSystemWindows(false)
+            w.insetsController?.let {
+                it.hide(WindowInsets.Type.systemBars())
+                it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            w.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        }
+    }
+
+    /** The bars come back after dialogs, the keyboard or voice search: hide them again. */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) goFullScreen()
+    }
+
     override fun onStart() {
         super.onStart()
         startServer()
@@ -235,6 +275,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         sfx.release()
         if (isFinishing) ImageLoader.clear() else ImageLoader.cancelAll()
         io.shutdownNow()
+        search.close()
         super.onDestroy()
     }
 
@@ -343,6 +384,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private fun goLobby() {
         mode = Mode.LOBBY
+        repairingKey = 0L
         ui.removeCallbacks(countdownTick)
         ui.removeCallbacks(scoreAutoNext)
         scoreAnim?.cancel()
@@ -527,6 +569,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun startNext() {
         val item = queue.pollNext() ?: return goLobby()
         queue.current = item
+        repairingKey = 0L
         mode = Mode.INTERMISSION
         hideAllOverlays()
         listOf(lobby, hud, queuePanel, scoreLayer).forEach { it.visibility = View.GONE }
@@ -555,7 +598,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private val countdownTick = object : Runnable {
         override fun run() {
-            if (mode != Mode.INTERMISSION) return
+            if (mode != Mode.INTERMISSION || repairingKey != 0L) return
             if (countdown <= 0) { beginSinging(); return }
             val v = findViewById<TextView>(R.id.imCount)
             v.text = countdown.toString()
@@ -588,6 +631,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private fun beginSinging() {
         val item = queue.current ?: return goLobby()
+        if (repairingKey == item.key) return   // still looking for a version that plays
         ui.removeCallbacks(countdownTick)
         val p = player
         if (p == null || !playerReady) {
@@ -937,10 +981,66 @@ class MainActivity : Activity(), PartyBackend.Listener {
         override fun onError(youTubePlayer: YouTubePlayer, error: PlayerConstants.PlayerError) {
             val item = queue.current ?: return
             if (mode != Mode.INTERMISSION && mode != Mode.SINGING) return
-            toast("😕 \"${item.song.title.take(40)}\" can't play here. Skipping…")
             pendingCue = null
-            afterSong()
+            // Remember refusals so the video (and, after repeats, its channel) stops showing up
+            if (error == PlayerConstants.PlayerError.VIDEO_NOT_PLAYABLE_IN_EMBEDDED_PLAYER ||
+                error == PlayerConstants.PlayerError.VIDEO_NOT_FOUND
+            ) search.markUnplayable(item.song)
+            tryAnotherVersion(item)
         }
+    }
+
+    /**
+     * A video refused to play (usually its owner blocks playback outside YouTube). Instead of
+     * skipping the singer, find another karaoke video of the same song and play that.
+     */
+    private fun tryAnotherVersion(item: QueueItem) {
+        if (repairingKey == item.key) return
+        val failed = item.song
+        if (item.retries >= MAX_VERSION_TRIES) {
+            toast("😕 No version of \"${failed.title.take(40)}\" plays here. Skipping…")
+            afterSong()
+            return
+        }
+        repairingKey = item.key
+        // Back to the "Next up" screen while we look
+        if (mode == Mode.SINGING) {
+            mode = Mode.INTERMISSION
+            listOf(hud, queuePanel).forEach { it.visibility = View.GONE }
+            stageContainer.visibility = View.INVISIBLE
+            intermission.visibility = View.VISIBLE
+            stageBg.animating = true
+            music.start()
+        }
+        ui.removeCallbacks(countdownTick)
+        findViewById<TextView>(R.id.imCount).text = "…"
+        toast("🔁 That video is blocked by its owner. Finding another version…")
+        val started = runCatching {
+            io.execute {
+                val alt = runCatching { search.alternativeFor(failed, setOf(failed.id)) }.getOrNull()
+                ui.post { onAnotherVersion(item, alt) }
+            }
+        }.isSuccess
+        if (!started) repairingKey = 0L
+    }
+
+    private fun onAnotherVersion(item: QueueItem, alt: Song?) {
+        if (isFinishing || isDestroyed || repairingKey != item.key) return
+        repairingKey = 0L
+        // The singer may have been sent back to the lobby or the end of the queue meanwhile
+        if (queue.current?.key != item.key || mode != Mode.INTERMISSION) return
+        if (alt == null) {
+            toast("😕 No other version of \"${item.song.title.take(40)}\" found. Skipping…")
+            afterSong()
+            return
+        }
+        val fixed = item.copy(song = alt, retries = item.retries + 1)
+        queue.current = fixed
+        findViewById<TextView>(R.id.imSong).text = alt.title
+        toast("🎶 Found another version: ${alt.channel.ifEmpty { "YouTube" }.take(30)}")
+        cue(alt.id)
+        countdown = 3
+        ui.post(countdownTick)
     }
 
     // =====================================================================================
@@ -1211,6 +1311,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         const val AUTOSTART_MS = 30_000L
         /** Start a fresh YouTube player every few songs so its web page can't grow all night. */
         const val RECYCLE_PLAYER_AFTER = 6
+        /** How many other versions to try when a video refuses to play. */
+        const val MAX_VERSION_TRIES = 2
         val STAGE_NAMES = listOf(
             "Disco Diva", "Rock Legend", "Mystery Voice", "Mic Master", "Golden Voice", "Pop Idol",
             "Shower Singer", "Night Owl", "Velvet Voice", "Funky Star", "Karaoke King", "Karaoke Queen",

@@ -12,7 +12,9 @@ import android.media.SoundPool
  */
 class LobbyMusic(context: Context) {
     private val context = context.applicationContext   // never hold on to the screen
+    /** The copy that is playing, and the copy queued to take over gaplessly when it ends. */
     private var player: MediaPlayer? = null
+    private var next: MediaPlayer? = null
     private var fade: ValueAnimator? = null
     private var level = 0f
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -27,36 +29,58 @@ class LobbyMusic(context: Context) {
     /** Fade in to [target] volume (0-1). The lobby default is deliberately low. */
     fun start(target: Float = LOBBY_VOLUME) {
         if (!enabled) return
-        val p = player ?: runCatching {
-            MediaPlayer.create(context, R.raw.lobby)?.apply {
-                isLooping = true
-                setVolume(0f, 0f)
-            }
-        }.getOrNull()?.also { player = it } ?: return
+        val p = player ?: (create()?.also { player = it; chain(it) } ?: return)
         if (!p.isPlaying) p.start()
         fadeTo(target, 1200) {}
     }
 
+    private fun create(): MediaPlayer? =
+        runCatching { MediaPlayer.create(context, R.raw.lobby) }.getOrNull()?.apply { setVolume(level, level) }
+
+    /**
+     * Gapless looping: a second copy is queued with setNextMediaPlayer, so Android switches to it
+     * on the exact last sample. (Plain isLooping leaves a short gap on some devices.)
+     */
+    private fun chain(p: MediaPlayer) {
+        val n = create()
+        if (n == null) { p.isLooping = true; return }
+        next = n
+        p.setNextMediaPlayer(n)
+        p.setOnCompletionListener { done ->
+            if (player !== done) { done.release(); return@setOnCompletionListener }
+            player = n          // already playing
+            next = null
+            done.release()
+            chain(n)
+        }
+    }
+
     /** Fade out and pause (kept prepared so it can come back instantly). */
     fun stop(ms: Long = 900) {
-        val p = player ?: return
-        fadeTo(0f, ms) { if (p.isPlaying) p.pause() }
+        if (player == null) return
+        // Look the player up at the end: the queued copy may have taken over during the fade
+        fadeTo(0f, ms) { player?.let { if (it.isPlaying) it.pause() } }
     }
 
     fun release() {
         fade?.cancel()
+        player?.setOnCompletionListener(null)
         player?.release()
+        next?.release()
         player = null
+        next = null
     }
 
     private fun fadeTo(target: Float, ms: Long, done: () -> Unit) {
         fade?.cancel()
-        val p = player ?: return
+        if (player == null) return
         fade = ValueAnimator.ofFloat(level, target).apply {
             duration = ms
             addUpdateListener {
                 level = it.animatedValue as Float
-                runCatching { p.setVolume(level, level) }
+                // Both copies, so the queued one takes over at the same volume
+                runCatching { player?.setVolume(level, level) }
+                runCatching { next?.setVolume(level, level) }
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 private var cancelled = false
