@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:id="@+id/imContent"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            style="@style/Label"
+            android:letterSpacing="0.5"
+            android:text="NEXT UP"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/imAvatar"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:layout_marginTop="12dp"
+            android:elevation="10dp"
+            android:gravity="center"
+            android:textColor="#0B0614"
+            android:textSize="60sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/imSinger"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:fontFamily="sans-serif-black"
+            android:maxLines="1"
+            android:shadowColor="@color/neon_pink"
+            android:shadowRadius="30"
+            android:textColor="#FFFFFF"
+            android:textSize="58sp" />
+
+        <TextView
+            android:id="@+id/imSong"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxWidth="720dp"
+            android:maxLines="2"
+            android:textColor="@color/text_dim"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/imCount"
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/ring_bg"
+            android:fontFamily="sans-serif-black"
+            android:gravity="center"
+            android:textColor="@color/gold"
+            android:textSize="38sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="OK  start now      ▶  later      ↩  lobby"
+            android:textColor="@color/text_dim"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/imQueueInfo"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="32dp"
+        android:background="@drawable/pill_bg"
+        android:paddingHorizontal="18dp"
+        android:paddingVertical="8dp"
+        android:textColor="@color/text_main"
+        android:textSize="15sp" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="28dp"
+        android:background="@drawable/panel_bg"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <com.karaoketv.QrView
+            android:id="@+id/imQr"
+            android:layout_width="120dp"
+            android:layout_height="120dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="📱 Add your song"
+            android:textColor="@color/text_main"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</FrameLayout>

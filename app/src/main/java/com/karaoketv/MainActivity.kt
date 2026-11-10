@@ -1,0 +1,1220 @@
+package com.karaoketv
+
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.ComponentCallbacks2
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
+import android.net.ConnectivityManager
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.StrictMode
+import android.speech.RecognizerIntent
+import android.view.Gravity
+import android.view.KeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
+import java.net.Inet4Address
+import java.security.SecureRandom
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import kotlin.random.Random
+
+/**
+ * The whole app is this one screen with layers:
+ *   LOBBY        browse songs, see the queue, phones join by QR code, quiet lobby music
+ *   INTERMISSION "Next up: Maria!" with a countdown while the video loads
+ *   SINGING      full-screen video; ◀ ▶ music volume, ▼ queue panel (add songs without stopping)
+ *   SCORE        drumroll → score → leaderboard rank → next singer
+ * One Activity keeps memory low, and the YouTube player only exists while the party is running.
+ */
+class MainActivity : Activity(), PartyBackend.Listener {
+
+    private enum class Mode { LOBBY, INTERMISSION, SINGING, SCORE }
+
+    private var mode = Mode.LOBBY
+    private val ui = Handler(Looper.getMainLooper())
+    private val io: ExecutorService = Executors.newFixedThreadPool(2)
+
+    private lateinit var prefs: SharedPreferences
+    private lateinit var queue: PartyQueue
+    private lateinit var search: SongSearch
+    private lateinit var board: Leaderboard
+    private lateinit var music: LobbyMusic
+    private lateinit var sfx: Sfx
+
+    // Layers
+    private lateinit var stageBg: StageView
+    private lateinit var stageContainer: FrameLayout
+    private lateinit var lobby: View
+    private lateinit var hud: View
+    private lateinit var queuePanel: View
+    private lateinit var intermission: View
+    private lateinit var scoreLayer: View
+    private lateinit var boardLayer: View
+    private lateinit var pickerLayer: View
+    private lateinit var sheetLayer: View
+    private lateinit var qrLayer: View
+    private lateinit var toastView: TextView
+    private lateinit var confetti: ConfettiView
+    private lateinit var lobbyBrowser: SongBrowser
+    private lateinit var panelBrowser: SongBrowser
+
+    // Player
+    private var playerView: YouTubePlayerView? = null
+    private var player: YouTubePlayer? = null
+    private var playerReady = false
+    private var startWhenReady = false
+    private var pendingCue: String? = null
+    private var duration = 0f
+    private var maxSecond = 0f
+    private var isPlaying = false
+    private var volume = 80
+
+    // Phones
+    private var server: PartyServer? = null
+    private var partyUrl: String? = null
+
+    // Misc state
+    private var lastInteraction = System.currentTimeMillis()
+    private var backPressedAt = 0L
+    private var countdown = 0
+    private var firstLobbyLoad = true
+    private var scoreDone = false
+    private var scoreAnim: ValueAnimator? = null
+    private var autoNextIn = 0
+    private var pickerSong: Song? = null
+    private var overlayReturnFocus: View? = null
+    private var sheetCancel: (() -> Unit)? = null
+    private var songsOnThisPlayer = 0
+
+    // =====================================================================================
+    // Lifecycle
+    // =====================================================================================
+
+    /** Scale the whole interface to the TV (see TvScale). */
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(newBase)
+        applyOverrideConfiguration(TvScale.configuration(newBase))
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        if (BuildConfig.DEBUG) {
+            // Debug builds log any leaked screen, unclosed stream or receiver (LeakCanary also watches)
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy.Builder()
+                    .detectActivityLeaks().detectLeakedClosableObjects().detectLeakedRegistrationObjects()
+                    .penaltyLog().build()
+            )
+        }
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        prefs = getSharedPreferences("settings", MODE_PRIVATE)
+        volume = prefs.getInt("music_volume", 80)
+        queue = PartyQueue(ui).also { it.onChanged = ::onQueueChanged }
+        search = SongSearch(this)
+        board = Leaderboard(this)
+        music = LobbyMusic(this)
+        sfx = Sfx(this)
+
+        stageBg = findViewById(R.id.stageBg)
+        stageContainer = findViewById(R.id.stageContainer)
+        lobby = findViewById(R.id.lobby)
+        hud = findViewById(R.id.hud)
+        queuePanel = findViewById(R.id.queuePanel)
+        intermission = findViewById(R.id.intermission)
+        scoreLayer = findViewById(R.id.scoreLayer)
+        boardLayer = findViewById(R.id.boardLayer)
+        pickerLayer = findViewById(R.id.pickerLayer)
+        sheetLayer = findViewById(R.id.sheetLayer)
+        qrLayer = findViewById(R.id.qrLayer)
+        toastView = findViewById(R.id.toast)
+        confetti = findViewById(R.id.confetti)
+
+        lobbyBrowser = SongBrowser(
+            this, search, io,
+            findViewById(R.id.lobbySearch), findViewById(R.id.lobbyChips), findViewById(R.id.lobbyStatus),
+            findViewById(R.id.lobbyScroll), findViewById(R.id.lobbyResults), columns = 3,
+        ) { openPicker(it) }
+        lobbyBrowser.onResults = { found ->
+            if (firstLobbyLoad && found && mode == Mode.LOBBY && !anyOverlayOpen()) lobbyBrowser.focusFirst()
+            firstLobbyLoad = false
+        }
+
+        panelBrowser = SongBrowser(
+            this, search, io,
+            findViewById(R.id.panelSearch), findViewById(R.id.panelChips), findViewById(R.id.panelStatus),
+            findViewById(R.id.panelScroll), findViewById(R.id.panelResults), columns = 1,
+        ) { openPicker(it) }
+
+        click(R.id.btnBoard) { showBoard() }
+        click(R.id.btnVoice) { voiceSearch() }
+        click(R.id.qrCard) { showBigQr() }
+        click(R.id.bigQrClose) { hideBigQr() }
+        click(R.id.btnMusic) {
+            music.enabled = !music.enabled
+            updateMusicButton()
+            toast(if (music.enabled) "🎵 Lobby music on" else "🔇 Lobby music off")
+        }
+        click(R.id.btnStart) { startNext() }
+        click(R.id.btnPanelAdd) { panelSearchMode() }
+        click(R.id.pickerGo) { confirmPicker(findViewById<EditText>(R.id.pickerInput).text.toString()) }
+        click(R.id.pickerCancel) { closePicker() }
+        click(R.id.tabTonight) { renderBoard(tonight = true) }
+        click(R.id.tabAll) { renderBoard(tonight = false) }
+        findViewById<View>(R.id.tabTonight).setOnFocusChangeListener { _, f -> if (f) renderBoard(true) }
+        findViewById<View>(R.id.tabAll).setOnFocusChangeListener { _, f -> if (f) renderBoard(false) }
+        findViewById<EditText>(R.id.pickerInput).setOnEditorActionListener { v, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) { confirmPicker(v.text.toString()); true } else false
+        }
+
+        updateMusicButton()
+        updateQr()
+        QueueStore.restore(prefs, queue)   // songs survive an accidental exit
+        goLobby()
+        lobbyBrowser.runQuickPick(0)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        startServer()
+        if (mode == Mode.LOBBY || mode == Mode.INTERMISSION) music.start()
+        stageBg.animating = mode != Mode.SINGING
+        ui.postDelayed(autopilot, 5000)
+        // resume whatever was counting down when we left
+        if (mode == Mode.INTERMISSION) { ui.removeCallbacks(countdownTick); ui.post(countdownTick) }
+        if (mode == Mode.SCORE && scoreDone) { ui.removeCallbacks(scoreAutoNext); ui.postDelayed(scoreAutoNext, 1000) }
+    }
+
+    override fun onStop() {
+        QueueStore.save(prefs, queue)
+        ui.removeCallbacks(autopilot)
+        ui.removeCallbacks(countdownTick)
+        ui.removeCallbacks(scoreAutoNext)
+        stopServer()
+        music.stop(0)
+        if (mode == Mode.SINGING) player?.pause()
+        stageBg.animating = false
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        // Break every link from long-lived objects back to this screen
+        stopServer()
+        ui.removeCallbacksAndMessages(null)
+        queue.onChanged = null
+        lobbyBrowser.onResults = null
+        scoreAnim?.removeAllListeners()
+        scoreAnim?.cancel()
+        listOf(scoreLayer, lobby, toastView, intermission).forEach { it.animate().cancel() }
+        confetti.clear()
+        stageBg.animating = false
+        releasePlayer()
+        music.release()
+        sfx.release()
+        if (isFinishing) ImageLoader.clear() else ImageLoader.cancelAll()
+        io.shutdownNow()
+        super.onDestroy()
+    }
+
+    @Deprecated("Activity result API from the platform; fine for a single voice-search request")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_VOICE || resultCode != RESULT_OK) return
+        val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
+        if (!text.isNullOrEmpty() && mode == Mode.LOBBY) lobbyBrowser.searchFor(text.take(80))
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        ImageLoader.clear()
+        search.trimMemory()
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            if (mode != Mode.LOBBY) lobbyBrowser.clear()
+            if (!queuePanel.isShown) panelBrowser.clear()
+            // a fresh player next time sheds whatever the web page has accumulated
+            if (mode == Mode.SCORE) songsOnThisPlayer = RECYCLE_PLAYER_AFTER
+        }
+    }
+
+    // =====================================================================================
+    // Remote control
+    // =====================================================================================
+
+    override fun dispatchKeyEvent(e: KeyEvent): Boolean {
+        lastInteraction = System.currentTimeMillis()
+        val down = e.action == KeyEvent.ACTION_DOWN
+        val first = down && e.repeatCount == 0
+        val code = e.keyCode
+        val back = code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE
+        val ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER ||
+            code == KeyEvent.KEYCODE_NUMPAD_ENTER || code == KeyEvent.KEYCODE_BUTTON_A
+
+        // Overlays first: they behave like normal menus
+        if (pickerLayer.isShown) { if (back) { if (first) closePicker(); return true }; return super.dispatchKeyEvent(e) }
+        if (sheetLayer.isShown) { if (back) { if (first) cancelSheet(); return true }; return super.dispatchKeyEvent(e) }
+        if (boardLayer.isShown) { if (back) { if (first) hideBoard(); return true }; return super.dispatchKeyEvent(e) }
+        if (qrLayer.isShown) { if (back) { if (first) hideBigQr(); return true }; return super.dispatchKeyEvent(e) }
+
+        when (mode) {
+            Mode.LOBBY -> {
+                if (back) { if (first) lobbyBack(); return true }
+                if (code == KeyEvent.KEYCODE_SEARCH || code == KeyEvent.KEYCODE_VOICE_ASSIST) { if (first) voiceSearch(); return true }
+                return super.dispatchKeyEvent(e)
+            }
+
+            Mode.INTERMISSION -> {
+                when {
+                    ok || code == KeyEvent.KEYCODE_MEDIA_PLAY || code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
+                        if (first) beginSinging()
+                    code == KeyEvent.KEYCODE_DPAD_RIGHT -> if (first) singLater()
+                    back -> if (first) {
+                        queue.current?.let { queue.pushFront(it) }
+                        queue.current = null
+                        goLobby()
+                    }
+                }
+                return true
+            }
+
+            Mode.SINGING -> {
+                if (queuePanel.isShown) {
+                    if (back) { if (first) panelBack(); return true }
+                    return super.dispatchKeyEvent(e)
+                }
+                when (code) {
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> if (down) changeVolume(-5)
+                    KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> if (down) changeVolume(+5)
+                    KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_MENU -> if (first) openPanel()
+                    KeyEvent.KEYCODE_DPAD_UP -> if (first) showStageInfo()
+                    KeyEvent.KEYCODE_MEDIA_PLAY -> if (first) player?.play()
+                    KeyEvent.KEYCODE_MEDIA_PAUSE -> if (first) player?.pause()
+                    KeyEvent.KEYCODE_MEDIA_NEXT -> if (first) afterSong()
+                    else -> when {
+                        ok || code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code == KeyEvent.KEYCODE_SPACE ->
+                            if (first) togglePause()
+                        back || code == KeyEvent.KEYCODE_MEDIA_STOP -> if (first) stageMenu()
+                        else -> return super.dispatchKeyEvent(e)
+                    }
+                }
+                return true
+            }
+
+            Mode.SCORE -> {
+                if ((ok || back) && first && scoreDone) afterSong()
+                return true
+            }
+        }
+        @Suppress("UNREACHABLE_CODE")
+        return true
+    }
+
+    private fun lobbyBack() {
+        val now = System.currentTimeMillis()
+        if (now - backPressedAt < 2500) { finish(); return }
+        backPressedAt = now
+        toast("Press BACK again to leave the party")
+    }
+
+    // =====================================================================================
+    // Lobby
+    // =====================================================================================
+
+    private fun goLobby() {
+        mode = Mode.LOBBY
+        ui.removeCallbacks(countdownTick)
+        ui.removeCallbacks(scoreAutoNext)
+        scoreAnim?.cancel()
+        queue.current = null
+        releasePlayer()
+        stageContainer.visibility = View.INVISIBLE
+        listOf(hud, queuePanel, intermission, scoreLayer).forEach { it.visibility = View.GONE }
+        lobby.visibility = View.VISIBLE
+        lobby.alpha = 0f
+        lobby.animate().alpha(1f).setDuration(350).start()
+        stageBg.animating = true
+        music.start()
+        renderQueues()
+        if (!lobbyBrowser.hasResults()) lobbyBrowser.lastQuery?.let { lobbyBrowser.run(it) }
+        val start = findViewById<View>(R.id.btnStart)
+        if (start.isShown) start.requestFocus() else if (!lobbyBrowser.focusFirst()) findViewById<View>(R.id.lobbySearch).requestFocus()
+    }
+
+    private fun updateMusicButton() {
+        findViewById<TextView>(R.id.btnMusic).text = if (music.enabled) "🎵" else "🔇"
+    }
+
+    /** Starts the party by itself if songs are waiting and nobody has touched the remote for a while. */
+    private val autopilot = object : Runnable {
+        override fun run() {
+            if (mode == Mode.LOBBY && !queue.isEmpty() && !anyOverlayOpen() &&
+                System.currentTimeMillis() - lastInteraction > AUTOSTART_MS
+            ) {
+                toast("🎤 Songs are waiting. Let's go!")
+                startNext()
+            }
+            ui.postDelayed(this, 5000)
+        }
+    }
+
+    // =====================================================================================
+    // Queue display
+    // =====================================================================================
+
+    private fun onQueueChanged() {
+        QueueStore.save(prefs, queue)
+        renderQueues()
+        if (mode == Mode.SCORE && scoreDone) updateScoreNext()
+        if (mode == Mode.INTERMISSION) updateIntermissionInfo()
+        if (mode == Mode.SINGING) updateNextPill()
+    }
+
+    private fun renderQueues() {
+        val items = queue.snapshot()
+        renderQueueList(findViewById(R.id.lobbyQueueList), items, 30, fallback = findViewById(R.id.btnStart), guide = true)
+        findViewById<TextView>(R.id.lobbyQueueTitle).text = if (items.isEmpty()) "UP NEXT" else "UP NEXT · ${items.size}"
+        val start = findViewById<TextView>(R.id.btnStart)
+        val wasFocused = start.isFocused
+        start.visibility = if (items.isNotEmpty() && mode == Mode.LOBBY) View.VISIBLE else View.GONE
+        if (items.isNotEmpty()) start.text = "▶  START: ${items[0].singer.uppercase()}"
+        if (wasFocused && !start.isShown) lobbyBrowser.focusFirst()
+
+        if (queuePanel.isShown) renderQueueList(findViewById(R.id.panelQueueList), items, 30, fallback = findViewById(R.id.btnPanelAdd))
+        findViewById<TextView>(R.id.panelTitle).text = if (items.isEmpty()) "UP NEXT" else "UP NEXT · ${items.size}"
+    }
+
+    private fun renderQueueList(list: LinearLayout, items: List<QueueItem>, max: Int, fallback: View, guide: Boolean = false) {
+        val hadFocus = list.findFocus() != null
+        list.removeAllViews()
+        items.take(max).forEachIndexed { i, item ->
+            val row = layoutInflater.inflate(R.layout.item_queue, list, false)
+            row.findViewById<TextView>(R.id.qAvatar).avatar(item.singer)
+            row.findViewById<TextView>(R.id.qSinger).text = "${i + 1}. ${item.singer}"
+            row.findViewById<TextView>(R.id.qSong).text = item.song.title
+            row.findViewById<TextView>(R.id.qBadge).text = if (item.fromPhone) "📱" else ""
+            row.setOnClickListener { queueItemMenu(item) }
+            list.addView(row)
+        }
+        if (items.size > max) list.addView(smallText("+ ${items.size - max} more waiting"))
+        if (items.isEmpty()) list.addView(smallText(
+            if (guide) "How it works:\n\n1.  Pick a song\n2.  Choose who sings\n3.  Press ▶ START\n\n📱 Guests can scan the code below to add songs from their phones."
+            else "No songs yet. Add one below, or scan the code with your phone!"
+        ).apply { textSize = 14f; setLineSpacing(0f, 1.15f) })
+        if (hadFocus) {
+            val target = list.getChildAt(0)?.takeIf { it.isFocusable } ?: fallback
+            if (!target.requestFocus()) lobbyBrowser.focusFirst()
+        }
+    }
+
+    private fun smallText(s: String) = TextView(this).apply {
+        text = s
+        textSize = 13f
+        setTextColor(getColor(R.color.text_dim))
+        setPadding(px(6), px(8), px(6), px(4))
+    }
+
+    private fun queueItemMenu(item: QueueItem) {
+        showSheet(
+            item.singer, item.song.title,
+            listOf(
+                "⬆ Sing next" to { queue.moveToTop(item.key) },
+                "🗑 Remove" to { queue.remove(item.key) },
+                "Cancel" to {},
+            )
+        )
+    }
+
+    // =====================================================================================
+    // Singer picker ("Who's singing?")
+    // =====================================================================================
+
+    private fun openPicker(song: Song) {
+        pickerSong = song
+        overlayReturnFocus = currentFocus
+        findViewById<TextView>(R.id.pickerSong).text = song.title
+        val input = findViewById<EditText>(R.id.pickerInput)
+        input.setText("")
+        val names = (queue.snapshot().map { it.singer } + listOfNotNull(queue.current?.singer) + board.recentNames(12))
+            .distinctBy { it.lowercase() }.take(8)
+        val box = findViewById<LinearLayout>(R.id.pickerNames)
+        box.removeAllViews()
+        names.chunked(3).forEach { rowNames ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+            rowNames.forEach { name ->
+                row.addView(styledButton(name, false).apply {
+                    maxWidth = px(170)   // long names get "…" instead of pushing the row off screen
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setOnClickListener { confirmPicker(name) }
+                },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(52)).apply { setMargins(px(5), px(5), px(5), px(5)) })
+            }
+            box.addView(row)
+        }
+        // One-click fun stage name: no typing needed
+        val surprise = styledButton("🎲 Surprise name", false).apply { setOnClickListener { confirmPicker(randomStageName()) } }
+        val lastRow = (box.getChildAt(box.childCount - 1) as? LinearLayout)?.takeIf { it.childCount < 3 }
+            ?: LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; box.addView(this) }
+        lastRow.addView(surprise, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(52)).apply { setMargins(px(5), px(5), px(5), px(5)) })
+        box.visibility = View.VISIBLE
+        findViewById<TextView>(R.id.pickerGo).text =
+            if (mode == Mode.LOBBY && queue.isEmpty()) "🎤 Sing now!" else "＋ Add"
+        pickerLayer.visibility = View.VISIBLE
+        popIn(pickerLayer)
+        val firstName = (box.getChildAt(0) as? ViewGroup)?.getChildAt(0)
+        (firstName ?: input).requestFocus()
+    }
+
+    private fun randomStageName(): String {
+        val taken = (queue.snapshot().map { it.singer } + listOfNotNull(queue.current?.singer)).map { it.lowercase() }.toSet()
+        return STAGE_NAMES.shuffled().firstOrNull { it.lowercase() !in taken } ?: "Mystery Singer ${Random.nextInt(2, 99)}"
+    }
+
+    private fun confirmPicker(raw: String) {
+        val song = pickerSong ?: return
+        val name = cleanName(raw)
+        if (name == null) {
+            val input = findViewById<EditText>(R.id.pickerInput)
+            input.requestFocus()
+            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(input, 0)
+            return
+        }
+        val singNow = mode == Mode.LOBBY && queue.isEmpty()
+        val item = QueueItem(song, name, fromPhone = false)
+        val err = queue.add(item)
+        closePicker()
+        if (err != null) { toast(err); return }
+        sfx.play(sfx.pop, 0.7f)
+        if (singNow) {
+            startNext()
+        } else {
+            toast("🎉 $name is #${queue.positionOf(item.key)} in line!")
+            if (queuePanel.isShown) panelListMode()
+        }
+    }
+
+    private fun closePicker() {
+        hideKeyboard()
+        pickerLayer.visibility = View.GONE
+        pickerSong = null
+        restoreFocus()
+    }
+
+    // =====================================================================================
+    // Intermission: "Next up!"
+    // =====================================================================================
+
+    private fun startNext() {
+        val item = queue.pollNext() ?: return goLobby()
+        queue.current = item
+        mode = Mode.INTERMISSION
+        hideAllOverlays()
+        listOf(lobby, hud, queuePanel, scoreLayer).forEach { it.visibility = View.GONE }
+        stageContainer.visibility = View.INVISIBLE
+        stageBg.animating = true
+        music.start()
+
+        findViewById<TextView>(R.id.imAvatar).avatar(item.singer)
+        findViewById<TextView>(R.id.imSinger).text = item.singer.uppercase()
+        findViewById<TextView>(R.id.imSong).text = item.song.title
+        updateIntermissionInfo()
+        intermission.visibility = View.VISIBLE
+        findViewById<View>(R.id.imContent).apply {
+            alpha = 0f; scaleX = 0.85f; scaleY = 0.85f
+            animate().alpha(1f).scaleX(1f).scaleY(1f).setInterpolator(OvershootInterpolator(1.6f)).setDuration(500).start()
+        }
+
+        if (songsOnThisPlayer >= RECYCLE_PLAYER_AFTER) releasePlayer()
+        ensurePlayer()
+        cue(item.song.id)
+        QueueStore.save(prefs, queue)
+        countdown = 10
+        ui.removeCallbacks(countdownTick)
+        ui.post(countdownTick)
+    }
+
+    private val countdownTick = object : Runnable {
+        override fun run() {
+            if (mode != Mode.INTERMISSION) return
+            if (countdown <= 0) { beginSinging(); return }
+            val v = findViewById<TextView>(R.id.imCount)
+            v.text = countdown.toString()
+            v.scaleX = 1.3f; v.scaleY = 1.3f
+            v.animate().scaleX(1f).scaleY(1f).setDuration(300).start()
+            sfx.play(sfx.tick, if (countdown <= 3) 1f else 0.4f)
+            countdown--
+            ui.postDelayed(this, 1000)
+        }
+    }
+
+    private fun updateIntermissionInfo() {
+        val n = queue.size
+        findViewById<TextView>(R.id.imQueueInfo).text =
+            if (n == 0) "Last song in the queue. Add more! 📱" else "🎤 $n more waiting after this"
+    }
+
+    private fun singLater() {
+        val item = queue.current ?: return
+        if (queue.isEmpty()) { toast("Nobody else is waiting. ${item.singer}, you're up! 🎤"); return }
+        queue.current = null
+        queue.pushBack(item)
+        toast("${item.singer} moved to the end of the queue")
+        startNext()
+    }
+
+    // =====================================================================================
+    // Singing
+    // =====================================================================================
+
+    private fun beginSinging() {
+        val item = queue.current ?: return goLobby()
+        ui.removeCallbacks(countdownTick)
+        val p = player
+        if (p == null || !playerReady) {
+            startWhenReady = true
+            findViewById<TextView>(R.id.imCount).text = "…"
+            return
+        }
+        startWhenReady = false
+        mode = Mode.SINGING
+        intermission.visibility = View.GONE
+        stageContainer.visibility = View.VISIBLE
+        stageBg.animating = false
+        music.stop()
+        duration = 0f
+        maxSecond = 0f
+        hud.visibility = View.VISIBLE
+        findViewById<View>(R.id.pausedBadge).visibility = View.GONE
+        findViewById<TextView>(R.id.nowAvatar).avatar(item.singer)
+        findViewById<TextView>(R.id.nowSinger).text = item.singer
+        findViewById<TextView>(R.id.nowSong).text = item.song.title
+        updateNextPill()
+        showStageInfo()
+        songsOnThisPlayer++
+        p.setVolume(volume)
+        p.loadVideo(item.song.id, 0f)
+    }
+
+    private fun updateNextPill() {
+        val next = queue.peekNext()
+        val pill = findViewById<View>(R.id.nextPill)
+        if (next == null) { pill.visibility = View.GONE; return }
+        pill.visibility = View.VISIBLE
+        findViewById<TextView>(R.id.nextSinger).text = next.singer
+        findViewById<TextView>(R.id.nextAvatar).avatar(next.singer)
+    }
+
+    private val hideStageInfo = Runnable {
+        listOf(R.id.nowPill, R.id.nextPill, R.id.stageHint).forEach {
+            findViewById<View>(it).animate().alpha(0f).setDuration(600).start()
+        }
+    }
+
+    private fun showStageInfo() {
+        ui.removeCallbacks(hideStageInfo)
+        listOf(R.id.nowPill, R.id.nextPill, R.id.stageHint).forEach {
+            findViewById<View>(it).animate().alpha(1f).setDuration(200).start()
+        }
+        ui.postDelayed(hideStageInfo, 7000)
+    }
+
+    private val watched: Double
+        get() = if (duration > 0f) (maxSecond / duration).toDouble().coerceIn(0.0, 1.0) else 0.0
+
+    private fun changeVolume(delta: Int) {
+        volume = (volume + delta).coerceIn(0, 100)
+        prefs.edit().putInt("music_volume", volume).apply()
+        player?.setVolume(volume)
+        findViewById<ProgressBar>(R.id.volumeBar).progress = volume
+        findViewById<TextView>(R.id.volumeText).text = "$volume%"
+        val hudView = findViewById<View>(R.id.volumeHud)
+        ui.removeCallbacks(hideVolume)
+        hudView.animate().alpha(1f).setDuration(120).start()
+        ui.postDelayed(hideVolume, 2000)
+    }
+
+    private val hideVolume = Runnable { findViewById<View>(R.id.volumeHud).animate().alpha(0f).setDuration(400).start() }
+
+    private fun togglePause() {
+        val p = player ?: return
+        if (isPlaying) p.pause() else p.play()
+    }
+
+    private fun stageMenu() {
+        player?.pause()
+        val f = watched
+        val opts = ArrayList<Pair<String, () -> Unit>>()
+        opts += "▶ Keep singing" to { player?.play(); Unit }
+        if (f >= 0.25) opts += "🏁 Score me!" to { showScore(f) }
+        opts += "⏭ Skip" to { afterSong() }
+        opts += "🏠 Lobby" to { goLobby() }
+        showSheet(
+            "Done singing?",
+            if (f >= 0.25) "You're ${(f * 100).toInt()}% through. Stopping early costs points!"
+            else "Sing at least a quarter of the song to get a score.",
+            opts,
+            onCancel = { player?.play() }
+        )
+    }
+
+    // ---------- queue panel (during a song) ----------
+
+    private fun openPanel() {
+        queuePanel.visibility = View.VISIBLE
+        panelListMode()
+        val inner = (queuePanel as ViewGroup).getChildAt(0)
+        inner.translationX = px(380).toFloat()
+        inner.animate().translationX(0f).setDuration(220).setInterpolator(DecelerateInterpolator()).start()
+    }
+
+    private fun panelListMode() {
+        findViewById<View>(R.id.panelSearchMode).visibility = View.GONE
+        findViewById<View>(R.id.panelListMode).visibility = View.VISIBLE
+        renderQueueList(findViewById(R.id.panelQueueList), queue.snapshot(), 30, fallback = findViewById(R.id.btnPanelAdd))
+        val list = findViewById<LinearLayout>(R.id.panelQueueList)
+        (list.getChildAt(0)?.takeIf { it.isFocusable } ?: findViewById(R.id.btnPanelAdd)).requestFocus()
+    }
+
+    private fun panelSearchMode() {
+        findViewById<View>(R.id.panelListMode).visibility = View.GONE
+        findViewById<View>(R.id.panelSearchMode).visibility = View.VISIBLE
+        if (!panelBrowser.hasResults()) panelBrowser.runQuickPick(0)
+        findViewById<LinearLayout>(R.id.panelChips).getChildAt(0)?.requestFocus()
+    }
+
+    private fun panelBack() {
+        if (findViewById<View>(R.id.panelSearchMode).isShown) panelListMode() else closePanel()
+    }
+
+    private fun closePanel() {
+        hideKeyboard()
+        queuePanel.visibility = View.GONE
+        panelBrowser.clear()
+    }
+
+    // =====================================================================================
+    // Score
+    // =====================================================================================
+
+    private fun showScore(fraction: Double) {
+        val item = queue.current ?: return goLobby()
+        val score = Judge.score(fraction) ?: return afterSong()
+        mode = Mode.SCORE
+        scoreDone = false
+        player?.pause()
+        hideAllOverlays()
+        hud.visibility = View.GONE
+        queuePanel.visibility = View.GONE
+        stageContainer.visibility = View.INVISIBLE
+        stageBg.animating = true
+
+        findViewById<TextView>(R.id.scAvatar).avatar(item.singer)
+        findViewById<TextView>(R.id.scSinger).text = "${item.singer.uppercase()}'S SCORE"
+        findViewById<TextView>(R.id.scSong).text = item.song.title
+        val scoreView = findViewById<TextView>(R.id.scScore)
+        scoreView.text = "--"
+        listOf(R.id.scStars, R.id.scVerdict, R.id.scRank, R.id.scNext).forEach {
+            findViewById<View>(it).visibility = View.INVISIBLE
+        }
+        scoreLayer.visibility = View.VISIBLE
+        popIn(scoreLayer)
+
+        // 1) drumroll with shuffling numbers
+        sfx.play(sfx.drumroll)
+        val started = System.currentTimeMillis()
+        val shuffle = object : Runnable {
+            override fun run() {
+                if (mode != Mode.SCORE) return
+                if (System.currentTimeMillis() - started >= 2600) { countUp(score, item); return }
+                scoreView.text = Random.nextInt(10, 100).toString()
+                scoreView.alpha = 0.5f + Random.nextFloat() * 0.5f
+                ui.postDelayed(this, 70)
+            }
+        }
+        ui.postDelayed(shuffle, 250)
+    }
+
+    private fun countUp(target: Int, item: QueueItem) {
+        sfx.stop(sfx.drumroll)
+        val scoreView = findViewById<TextView>(R.id.scScore)
+        scoreView.alpha = 1f
+        var last = -1
+        scoreAnim = ValueAnimator.ofInt(0, target).apply {
+            duration = 1500
+            interpolator = DecelerateInterpolator(2.2f)
+            addUpdateListener {
+                val v = it.animatedValue as Int
+                if (v != last) {
+                    last = v
+                    scoreView.text = v.toString()
+                    if (v % 3 == 0) sfx.play(sfx.tick, 0.35f)
+                }
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                private var cancelled = false
+                override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true }
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (!cancelled && mode == Mode.SCORE) land(target, item)
+                }
+            })
+            start()
+        }
+    }
+
+    private fun land(score: Int, item: QueueItem) {
+        val scoreView = findViewById<TextView>(R.id.scScore)
+        scoreView.text = score.toString()
+        sfx.play(sfx.reveal)
+        if (score >= 80) sfx.play(sfx.applause, if (score >= 90) 0.9f else 0.6f)
+        scoreView.scaleX = 1.35f; scoreView.scaleY = 1.35f
+        scoreView.animate().scaleX(1f).scaleY(1f).setInterpolator(OvershootInterpolator(3f)).setDuration(450).start()
+
+        val stars = Judge.stars(score)
+        findViewById<TextView>(R.id.scStars).text = "★".repeat(stars) + "☆".repeat(5 - stars)
+        findViewById<TextView>(R.id.scVerdict).text = Judge.verdict(score)
+
+        val rank = board.add(Entry(item.singer, score, item.song.title, System.currentTimeMillis()))
+        findViewById<TextView>(R.id.scRank).text = when (rank) {
+            1 -> "👑 #1 tonight!"
+            2 -> "🥈 #2 tonight"
+            3 -> "🥉 #3 tonight"
+            else -> "#$rank tonight"
+        }
+        listOf(R.id.scStars, R.id.scVerdict, R.id.scRank).forEachIndexed { i, id ->
+            findViewById<View>(id).apply {
+                visibility = View.VISIBLE
+                alpha = 0f; translationY = px(16).toFloat()
+                animate().alpha(1f).translationY(0f).setStartDelay(150L + i * 150L).setDuration(380).start()
+            }
+        }
+
+        when {
+            score >= 95 -> {
+                sfx.play(sfx.fanfare)
+                confetti.burst(240)
+                ui.postDelayed({ if (mode == Mode.SCORE) confetti.burst(140) }, 900)
+            }
+            score >= 90 -> confetti.burst(90)
+        }
+
+        ui.postDelayed({
+            if (mode != Mode.SCORE) return@postDelayed
+            scoreDone = true
+            autoNextIn = 12
+            updateScoreNext()
+            findViewById<View>(R.id.scNext).apply {
+                visibility = View.VISIBLE
+                alpha = 0f
+                animate().alpha(1f).setDuration(300).start()
+            }
+            ui.postDelayed(scoreAutoNext, 1000)
+        }, 1600)
+    }
+
+    private val scoreAutoNext = object : Runnable {
+        override fun run() {
+            if (mode != Mode.SCORE) return
+            autoNextIn--
+            if (autoNextIn <= 0) { afterSong(); return }
+            updateScoreNext()
+            ui.postDelayed(this, 1000)
+        }
+    }
+
+    private fun updateScoreNext() {
+        val next = queue.peekNext()
+        findViewById<TextView>(R.id.scNext).text =
+            if (next != null) "Next up: ${next.singer}   ·   OK to continue ($autoNextIn)"
+            else "Queue is empty   ·   OK for the lobby ($autoNextIn)"
+    }
+
+    /** Song finished, skipped or failed: move on to the next singer or back to the lobby. */
+    private fun afterSong() {
+        ui.removeCallbacks(scoreAutoNext)
+        scoreAnim?.cancel()
+        sfx.stop(sfx.drumroll)
+        scoreLayer.visibility = View.GONE
+        queue.current = null
+        QueueStore.save(prefs, queue)
+        if (queue.isEmpty()) goLobby() else startNext()
+    }
+
+    // =====================================================================================
+    // YouTube player (created for the party, released in the lobby)
+    // =====================================================================================
+
+    private fun ensurePlayer() {
+        if (playerView != null) return
+        val v = layoutInflater.inflate(R.layout.stage_player, stageContainer, false) as YouTubePlayerView
+        stageContainer.addView(v)
+        playerView = v
+        playerReady = false
+        songsOnThisPlayer = 0
+        val options = IFramePlayerOptions.Builder(this)
+            .controls(0)       // the remote drives everything
+            .rel(0)
+            .ivLoadPolicy(3)   // no annotations
+            .ccLoadPolicy(0)   // no captions on top of the lyrics
+            .build()
+        v.initialize(playerListener, options)
+    }
+
+    private fun cue(id: String) {
+        pendingCue = id
+        if (playerReady) player?.cueVideo(id, 0f)
+    }
+
+    private fun releasePlayer() {
+        val v = playerView ?: return
+        playerView = null
+        player = null
+        playerReady = false
+        startWhenReady = false
+        pendingCue = null
+        isPlaying = false
+        runCatching { v.release() }
+        stageContainer.removeView(v)
+    }
+
+    private val playerListener = object : AbstractYouTubePlayerListener() {
+        override fun onReady(youTubePlayer: YouTubePlayer) {
+            if (playerView == null) return
+            player = youTubePlayer
+            playerReady = true
+            youTubePlayer.setVolume(volume)
+            pendingCue?.let { youTubePlayer.cueVideo(it, 0f) }
+            if (startWhenReady && mode == Mode.INTERMISSION) beginSinging()
+        }
+
+        override fun onStateChange(youTubePlayer: YouTubePlayer, state: PlayerConstants.PlayerState) {
+            isPlaying = state == PlayerConstants.PlayerState.PLAYING
+            if (mode != Mode.SINGING) {
+                if (isPlaying) youTubePlayer.pause()
+                return
+            }
+            val badge = findViewById<View>(R.id.pausedBadge)
+            when (state) {
+                PlayerConstants.PlayerState.PLAYING -> {
+                    youTubePlayer.setVolume(volume)
+                    badge.visibility = View.GONE
+                }
+                PlayerConstants.PlayerState.PAUSED -> {
+                    if (!anyOverlayOpen() && !queuePanel.isShown) badge.visibility = View.VISIBLE
+                }
+                PlayerConstants.PlayerState.ENDED -> showScore(1.0)
+                else -> Unit
+            }
+        }
+
+        override fun onVideoDuration(youTubePlayer: YouTubePlayer, duration: Float) {
+            if (mode == Mode.SINGING && duration > 0f) this@MainActivity.duration = duration
+        }
+
+        override fun onCurrentSecond(youTubePlayer: YouTubePlayer, second: Float) {
+            if (mode == Mode.SINGING && second > maxSecond) maxSecond = second
+        }
+
+        override fun onError(youTubePlayer: YouTubePlayer, error: PlayerConstants.PlayerError) {
+            val item = queue.current ?: return
+            if (mode != Mode.INTERMISSION && mode != Mode.SINGING) return
+            toast("😕 \"${item.song.title.take(40)}\" can't play here. Skipping…")
+            pendingCue = null
+            afterSong()
+        }
+    }
+
+    // =====================================================================================
+    // Phones: tiny local web server + QR code
+    // =====================================================================================
+
+    private fun startServer() {
+        if (server != null) return
+        val token = prefs.getString("party_key", null) ?: newToken().also { prefs.edit().putString("party_key", it).apply() }
+        val page = runCatching { assets.open("remote.html").use { it.readBytes() } }.getOrNull() ?: return
+        val s = PartyServer(PartyBackend(queue, search, this), token, page)
+        server = s
+        io.execute {
+            val port = s.start()
+            val ip = lanAddress()
+            val url = if (port > 0 && ip != null) "http://$ip:$port/?k=$token" else null
+            ui.post {
+                if (server === s) {
+                    partyUrl = url
+                    updateQr()
+                }
+            }
+        }
+    }
+
+    /** Synchronous on purpose: closing a socket is instant, and a queued task could be dropped on exit. */
+    private fun stopServer() {
+        val s = server ?: return
+        server = null
+        s.stop()
+    }
+
+    private fun lanAddress(): String? = runCatching {
+        val cm = getSystemService(ConnectivityManager::class.java)
+        val props = cm.getLinkProperties(cm.activeNetwork) ?: return null
+        props.linkAddresses.map { it.address }
+            .firstOrNull { it is Inet4Address && !it.isLoopbackAddress }?.hostAddress
+    }.getOrNull()
+
+    private fun newToken(): String {
+        val alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+        val rnd = SecureRandom()
+        return (1..10).map { alphabet[rnd.nextInt(alphabet.length)] }.joinToString("")
+    }
+
+    private fun updateQr() {
+        val url = partyUrl
+        listOf(R.id.lobbyQr, R.id.panelQr, R.id.imQr, R.id.bigQr).forEach { findViewById<QrView>(it).setText(url) }
+        findViewById<TextView>(R.id.bigQrUrl).text = url?.let { "Or type in the browser:\n" + it } ?: ""
+        findViewById<TextView>(R.id.lobbyUrl).text =
+            if (url != null) url.substringAfter("http://").substringBefore("/?") + "\nSame Wi-Fi as the TV"
+            else "Connect the TV to your home network to let phones join"
+    }
+
+    override fun onPhoneAdded(item: QueueItem) {
+        sfx.play(sfx.pop)
+        toast("📱 ${item.singer} added “${item.song.title.take(45)}”")
+    }
+
+    private fun showBigQr() {
+        if (partyUrl == null) { toast("Connect the TV to your home Wi-Fi or network first"); return }
+        overlayReturnFocus = currentFocus
+        qrLayer.visibility = View.VISIBLE
+        popIn(qrLayer)
+        findViewById<View>(R.id.bigQrClose).requestFocus()
+    }
+
+    private fun hideBigQr() {
+        qrLayer.visibility = View.GONE
+        restoreFocus()
+    }
+
+    // ---- voice search (remote's search/mic button or the 🎙 button) ----
+
+    private fun voiceSearch() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a song or an artist")
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQ_VOICE)
+        } catch (e: ActivityNotFoundException) {
+            toast("Voice search isn't available here. Type instead 👇")
+            val box = findViewById<EditText>(R.id.lobbySearch)
+            box.requestFocus()
+            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(box, 0)
+        }
+    }
+
+    // =====================================================================================
+    // Leaderboard overlay
+    // =====================================================================================
+
+    private fun showBoard() {
+        overlayReturnFocus = currentFocus
+        boardLayer.visibility = View.VISIBLE
+        popIn(boardLayer)
+        boardShowsTonight = null
+        renderBoard(tonight = true)
+        findViewById<View>(R.id.tabTonight).requestFocus()
+    }
+
+    private fun hideBoard() {
+        boardLayer.visibility = View.GONE
+        restoreFocus()
+    }
+
+    private var boardShowsTonight: Boolean? = null
+
+    private fun renderBoard(tonight: Boolean) {
+        if (boardShowsTonight == tonight && boardLayer.isShown && findViewById<LinearLayout>(R.id.boardRows).childCount > 0) return
+        boardShowsTonight = tonight
+        findViewById<View>(R.id.tabTonight).isSelected = tonight
+        findViewById<View>(R.id.tabAll).isSelected = !tonight
+        val list = board.top(if (tonight) board.tonight() else board.all(), 8)   // top 8 fits any screen
+        findViewById<View>(R.id.boardEmpty).visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+
+        // Podium: 2nd, 1st, 3rd
+        val podium = findViewById<LinearLayout>(R.id.podium)
+        podium.removeAllViews()
+        listOf(1, 0, 2).forEach { i ->
+            val e = list.getOrNull(i) ?: return@forEach
+            podium.addView(podiumColumn(e, i), LinearLayout.LayoutParams(px(170), ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+
+        val rows = findViewById<LinearLayout>(R.id.boardRows)
+        rows.removeAllViews()
+        list.drop(3).forEachIndexed { j, e ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(px(14), px(3), px(14), px(3))
+                setBackgroundColor(if (j % 2 == 0) 0x26FFFFFF else 0x10FFFFFF)
+            }
+            row.addView(label("${j + 4}.", 16f, R.color.text_dim), LinearLayout.LayoutParams(px(40), ViewGroup.LayoutParams.WRAP_CONTENT))
+            row.addView(TextView(this).apply { avatar(e.name); gravity = Gravity.CENTER; setTextColor(0xFF0B0614.toInt()); textSize = 13f },
+                LinearLayout.LayoutParams(px(28), px(28)))
+            row.addView(label(e.name, 17f, R.color.text_main, bold = true).apply { setPadding(px(10), 0, 0, 0) },
+                LinearLayout.LayoutParams(px(170), ViewGroup.LayoutParams.WRAP_CONTENT))
+            row.addView(label(e.song, 12f, R.color.text_dim), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(label(e.score.toString(), 20f, R.color.gold, bold = true).apply { gravity = Gravity.END },
+                LinearLayout.LayoutParams(px(60), ViewGroup.LayoutParams.WRAP_CONTENT))
+            rows.addView(row)
+        }
+    }
+
+    private fun podiumColumn(e: Entry, place: Int): View {
+        val heights = intArrayOf(72, 52, 38)
+        val medals = arrayOf("🥇", "🥈", "🥉")
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(TextView(context).apply {
+                avatar(e.name); gravity = Gravity.CENTER; setTextColor(0xFF0B0614.toInt())
+                textSize = 24f; paint.isFakeBoldText = true
+            }, LinearLayout.LayoutParams(px(46), px(46)))
+            addView(label(e.name, 17f, R.color.text_main, bold = true).apply { gravity = Gravity.CENTER })
+            addView(label(e.score.toString(), 26f, R.color.gold, bold = true).apply { gravity = Gravity.CENTER })
+            addView(TextView(context).apply {
+                text = medals[place]
+                textSize = 30f
+                gravity = Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(colorFor(e.name) and 0x00FFFFFF or 0x99000000.toInt(), 0x331A1030)
+                ).apply { setCornerRadii(floatArrayOf(px(12).toFloat(), px(12).toFloat(), px(12).toFloat(), px(12).toFloat(), 0f, 0f, 0f, 0f)) }
+            }, LinearLayout.LayoutParams(px(140), px(heights[place])).apply { topMargin = px(6) })
+        }
+    }
+
+    private fun label(s: String, size: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
+        text = s
+        textSize = size
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        setTextColor(getColor(color))
+        if (bold) paint.isFakeBoldText = true
+    }
+
+    // =====================================================================================
+    // Generic overlays: action sheet, toast
+    // =====================================================================================
+
+    private fun showSheet(title: String, text: String, options: List<Pair<String, () -> Unit>>, onCancel: () -> Unit = {}) {
+        if (!sheetLayer.isShown) overlayReturnFocus = currentFocus
+        findViewById<TextView>(R.id.sheetTitle).text = title
+        findViewById<TextView>(R.id.sheetText).apply {
+            this.text = text
+            visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
+        }
+        val box = findViewById<LinearLayout>(R.id.sheetButtons)
+        box.removeAllViews()
+        options.forEachIndexed { i, (label, action) ->
+            val b = styledButton(label, primary = i == 0)
+            b.setOnClickListener {
+                sheetLayer.visibility = View.GONE
+                restoreFocus()
+                action()
+            }
+            box.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(52)).apply {
+                if (i > 0) marginStart = px(12)
+            })
+        }
+        sheetCancel = onCancel
+        sheetLayer.visibility = View.VISIBLE
+        popIn(sheetLayer)
+        box.getChildAt(0)?.requestFocus()
+    }
+
+    private fun cancelSheet() {
+        sheetLayer.visibility = View.GONE
+        restoreFocus()
+        sheetCancel?.invoke()
+        sheetCancel = null
+    }
+
+    private fun hideAllOverlays() {
+        listOf(pickerLayer, sheetLayer, boardLayer, qrLayer).forEach { it.visibility = View.GONE }
+        hideKeyboard()
+    }
+
+    private fun anyOverlayOpen() = pickerLayer.isShown || sheetLayer.isShown || boardLayer.isShown || qrLayer.isShown
+
+    private fun restoreFocus() {
+        val v = overlayReturnFocus
+        overlayReturnFocus = null
+        if (v != null && v.isShown) v.requestFocus()
+    }
+
+    private val hideToast = Runnable {
+        toastView.animate().alpha(0f).setDuration(300).withEndAction { toastView.visibility = View.GONE }.start()
+    }
+
+    private fun toast(msg: String) {
+        toastView.text = msg
+        toastView.visibility = View.VISIBLE
+        toastView.alpha = 0f
+        toastView.translationY = -px(20).toFloat()
+        toastView.animate().alpha(1f).translationY(0f).setDuration(250).start()
+        ui.removeCallbacks(hideToast)
+        ui.postDelayed(hideToast, 3500)
+    }
+
+    // =====================================================================================
+    // Small helpers
+    // =====================================================================================
+
+    private fun styledButton(label: String, primary: Boolean) =
+        TextView(this, null, 0, if (primary) R.style.TvButton_Primary else R.style.TvButton).apply { text = label }
+
+    private fun popIn(v: View) {
+        v.alpha = 0f
+        v.animate().alpha(1f).setDuration(180).start()
+    }
+
+    private fun click(id: Int, action: () -> Unit) = findViewById<View>(id).setOnClickListener { action() }
+
+    private fun hideKeyboard() {
+        val v = currentFocus ?: window.decorView
+        (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
+    }
+
+    private fun px(dp: Int) = (dp * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        const val REQ_VOICE = 42
+        const val AUTOSTART_MS = 30_000L
+        /** Start a fresh YouTube player every few songs so its web page can't grow all night. */
+        const val RECYCLE_PLAYER_AFTER = 6
+        val STAGE_NAMES = listOf(
+            "Disco Diva", "Rock Legend", "Mystery Voice", "Mic Master", "Golden Voice", "Pop Idol",
+            "Shower Singer", "Night Owl", "Velvet Voice", "Funky Star", "Karaoke King", "Karaoke Queen",
+            "Rockstar", "Dancing Queen", "Soul Sister", "Mr. Groove"
+        )
+    }
+}

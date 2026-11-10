@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/scrim"
+    android:clickable="true">
+
+    <LinearLayout
+        android:layout_width="680dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center_horizontal"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-black"
+            android:shadowColor="@color/gold"
+            android:shadowRadius="20"
+            android:text="🏆 HALL OF FAME"
+            android:textColor="#FFFFFF"
+            android:textSize="32sp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tabTonight"
+                style="@style/TvButton"
+                android:text="Tonight" />
+
+            <TextView
+                android:id="@+id/tabAll"
+                style="@style/TvButton"
+                android:layout_marginStart="12dp"
+                android:text="All time" />
+        </LinearLayout>
+
+        <!-- Podium: 2nd, 1st, 3rd -->
+        <LinearLayout
+            android:id="@+id/podium"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="bottom|center_horizontal"
+            android:orientation="horizontal" />
+
+        <LinearLayout
+            android:id="@+id/boardRows"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/boardEmpty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="40dp"
+            android:text="No scores yet. Grab a mic! 🎤"
+            android:textColor="@color/text_dim"
+            android:textSize="20sp"
+            android:visibility="gone" />
+    </LinearLayout>
+</FrameLayout>

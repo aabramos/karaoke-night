@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lobby: browse songs on the left, queue + phone QR code on the right.
+     Designed on a 960x540 canvas that TvScale stretches to fill any TV.
+     48dp / 27dp outer padding = the Android TV safe area (nothing gets cut off by overscan). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingHorizontal="48dp"
+    android:paddingVertical="27dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-black"
+            android:letterSpacing="0.05"
+            android:shadowColor="@color/neon_pink"
+            android:shadowRadius="22"
+            android:text="🎤 KARAOKE"
+            android:textColor="#FFFFFF"
+            android:textSize="27sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:fontFamily="sans-serif-black"
+            android:letterSpacing="0.05"
+            android:shadowColor="@color/neon_cyan"
+            android:shadowRadius="22"
+            android:text="NIGHT"
+            android:textColor="@color/neon_cyan"
+            android:textSize="27sp" />
+
+        <EditText
+            android:id="@+id/lobbySearch"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_marginStart="22dp"
+            android:layout_marginEnd="10dp"
+            android:layout_weight="1"
+            android:background="@drawable/field_bg"
+            android:hint="🔍  Search a song or artist…"
+            android:imeOptions="actionSearch|flagNoExtractUi"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:maxLength="80"
+            android:maxLines="1"
+            android:paddingHorizontal="22dp"
+            android:textColor="@color/text_main"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/btnVoice"
+            style="@style/IconButton"
+            android:contentDescription="Voice search"
+            android:text="🎙" />
+
+        <TextView
+            android:id="@+id/btnBoard"
+            style="@style/IconButton"
+            android:layout_marginStart="10dp"
+            android:contentDescription="Hall of fame"
+            android:text="🏆" />
+
+        <TextView
+            android:id="@+id/btnMusic"
+            style="@style/IconButton"
+            android:layout_marginStart="10dp"
+            android:contentDescription="Lobby music on or off"
+            android:text="🎵" />
+    </LinearLayout>
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:clipToPadding="false"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/lobbyChips"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingVertical="2dp" />
+    </HorizontalScrollView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="8dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <ScrollView
+                android:id="@+id/lobbyScroll"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:fadingEdgeLength="28dp"
+                android:requiresFadingEdge="vertical"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/lobbyResults"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingVertical="6dp" />
+            </ScrollView>
+
+            <TextView
+                android:id="@+id/lobbyStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:paddingHorizontal="40dp"
+                android:textColor="@color/text_dim"
+                android:textSize="19sp"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <!-- Right column: queue (scrolls if long) + QR card -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="12dp"
+            android:layout_weight="0.38"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="@drawable/panel_bg"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:id="@+id/lobbyQueueTitle"
+                    style="@style/Label"
+                    android:text="UP NEXT" />
+
+                <ScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="6dp"
+                    android:layout_weight="1"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/lobbyQueueList"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical" />
+                </ScrollView>
+
+                <TextView
+                    android:id="@+id/btnStart"
+                    style="@style/TvButton.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_marginTop="8dp"
+                    android:ellipsize="end"
+                    android:paddingHorizontal="12dp"
+                    android:text="▶ START"
+                    android:textSize="18sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- Press OK on this card for a big, easy-to-scan QR code -->
+            <LinearLayout
+                android:id="@+id/qrCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/card_bg"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="9dp">
+
+                <com.karaoketv.QrView
+                    android:id="@+id/lobbyQr"
+                    android:layout_width="96dp"
+                    android:layout_height="96dp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📱 Add songs from your phone"
+                        android:textColor="@color/text_main"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/lobbyUrl"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="Same Wi-Fi as the TV"
+                        android:textColor="@color/text_dim"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="OK = bigger code"
+                        android:textColor="@color/neon_cyan"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

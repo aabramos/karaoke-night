@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0614">
+<title>Karaoke Night</title>
+<style>
+:root{--bg:#0b0614;--card:#1c1233;--card2:#261946;--pink:#ff3da5;--cyan:#2ee6ff;--gold:#ffd23f;--dim:#b9aedb;--line:#3a2a63}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:radial-gradient(120% 60% at 50% 0,#3a1a5e 0,#170c2b 55%,var(--bg) 100%) fixed;color:#fff;font:16px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px 16px 90px;min-height:100vh}
+h1{margin:4px 0 14px;font-size:26px;font-weight:900;letter-spacing:.06em;text-shadow:0 0 18px var(--pink)}
+h1 span{color:var(--cyan);text-shadow:0 0 18px var(--cyan)}
+h2{font-size:13px;letter-spacing:.2em;color:var(--cyan);margin:22px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px}
+.now{display:flex;gap:12px;align-items:center;background:linear-gradient(135deg,#3b1450,#1c1233);border-color:#6b2a7f}
+.now .mic{font-size:30px;animation:pulse 1.4s infinite}
+@keyframes pulse{50%{transform:scale(1.15)}}
+.now b{display:block;font-size:18px;color:var(--gold)}
+.now small{color:var(--dim)}
+input{width:100%;background:var(--card2);border:2px solid var(--line);color:#fff;border-radius:999px;padding:12px 18px;font-size:16px;outline:none}
+input:focus{border-color:var(--cyan)}
+.row{display:flex;gap:8px}
+.btn{border:0;border-radius:999px;background:var(--pink);color:#fff;font-weight:800;padding:0 18px;font-size:16px;min-height:46px}
+.btn:active{transform:scale(.96)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:10px 0 2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;background:var(--card2);border:1px solid var(--line);color:#fff;border-radius:999px;padding:8px 14px;font-size:14px}
+.res{display:flex;gap:10px;align-items:center;padding:8px;border-radius:14px;background:var(--card);margin-top:8px;border:1px solid var(--line)}
+.res img{width:112px;height:63px;object-fit:cover;border-radius:10px;flex:none;background:#120a22}
+.res .t{flex:1;min-width:0}
+.res .t b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px}
+.res .t small{color:var(--cyan);font-size:12px}
+.add{flex:none;width:46px;height:46px;border-radius:50%;border:0;background:var(--pink);color:#fff;font-size:26px;font-weight:900}
+.add.done{background:#2b8a4b}
+.q{display:flex;gap:10px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--line)}
+.q:last-child{border:0}
+.n{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:900;font-size:14px;color:#0b0614}
+.q .t{min-width:0}
+.q .t b{display:block}
+.q .t small{display:block;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.me{background:rgba(255,61,165,.12);border-radius:10px}
+.muted{color:var(--dim);text-align:center;padding:10px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(120px);background:#fff;color:#0b0614;font-weight:800;padding:12px 20px;border-radius:999px;transition:transform .3s;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:90vw;text-align:center}
+#toast.show{transform:translateX(-50%) translateY(0)}
+.spin{display:inline-block;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<h1>🎤 KARAOKE <span>NIGHT</span></h1>
+
+<div class="card now" id="now"><div class="mic">🎤</div><div><b id="nowSinger">Waiting for the first singer…</b><small id="nowSong">Add a song below!</small></div></div>
+
+<h2>YOUR NAME</h2>
+<input id="name" maxlength="20" placeholder="Who's singing?" autocomplete="nickname">
+
+<h2>FIND A SONG</h2>
+<form class="row" id="sf"><input id="q" maxlength="80" placeholder="Song or artist…" enterkeyhint="search"><button class="btn">Go</button></form>
+<div class="chips" id="chips"></div>
+<div id="results"></div>
+
+<h2>UP NEXT</h2>
+<div class="card" id="queue"><div class="muted">The queue is empty.</div></div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+  'use strict';
+  var K = new URLSearchParams(location.search).get('k') || '';
+  var ID = /^[A-Za-z0-9_-]{11}$/;
+  var COLORS = ['#ff3da5','#2ee6ff','#ffd23f','#7cff6b','#b36bff','#ff8a3d'];
+  var $ = function(id){ return document.getElementById(id); };
+  var nameEl = $('name');
+  try { nameEl.value = localStorage.getItem('singer') || ''; } catch(e) {}
+  nameEl.addEventListener('input', function(){ try { localStorage.setItem('singer', nameEl.value.trim()); } catch(e) {} });
+
+  function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function color(s){ var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return COLORS[Math.abs(h) % COLORS.length]; }
+  var tt;
+  function toast(msg){ var t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(function(){ t.classList.remove('show'); }, 2600); }
+
+  function api(path, opts){
+    var sep = path.indexOf('?') < 0 ? '?' : '&';
+    return fetch(path + sep + 'k=' + encodeURIComponent(K), opts).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(j){ if (!r.ok) throw new Error(j.error || 'Something went wrong'); return j; });
+    });
+  }
+
+  // ---- quick picks ----
+  [['🔥 Top hits','top hits'],['🇵🇹 Portuguese','músicas portuguesas'],['🕺 80s','80s hits'],['📼 90s','90s hits'],['🎸 Rock','rock classics'],['👫 Duets','duets'],['💔 Ballads','love ballads'],['🍻 Party','party songs']]
+    .forEach(function(p){ var c = el('button','chip',p[0]); c.onclick = function(){ $('q').value = p[1]; search(p[1]); }; $('chips').appendChild(c); });
+
+  $('sf').onsubmit = function(e){ e.preventDefault(); var q = $('q').value.trim(); if (q) { $('q').blur(); search(q); } };
+
+  function search(q){
+    var box = $('results'); box.textContent = '';
+    box.appendChild(el('div','muted')).innerHTML = '<span class="spin">🎵</span> Searching…';
+    api('/api/search?q=' + encodeURIComponent(q)).then(function(list){
+      box.textContent = '';
+      if (!list.length) { box.appendChild(el('div','muted','No karaoke versions found. Try another song.')); return; }
+      list.forEach(function(v){
+        if (!ID.test(v.id)) return;
+        var r = el('div','res');
+        var img = el('img'); img.loading = 'lazy'; img.alt = ''; img.onerror = function(){ this.style.visibility = 'hidden'; }; img.src = 'https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg';
+        var t = el('div','t'); t.appendChild(el('b',null,v.title)); t.appendChild(el('small',null,(v.channel || '') + (v.dur ? ' · ' + v.dur : '')));
+        var b = el('button','add','+'); b.setAttribute('aria-label','Add to queue');
+        b.onclick = function(){ add(v, b); };
+        r.appendChild(img); r.appendChild(t); r.appendChild(b); box.appendChild(r);
+      });
+    }).catch(function(e){ box.textContent = ''; box.appendChild(el('div','muted',e.message)); });
+  }
+
+  function add(v, btn){
+    var singer = nameEl.value.trim();
+    if (!singer) { toast('Type your name first 👆'); nameEl.focus(); window.scrollTo({top:0,behavior:'smooth'}); return; }
+    btn.disabled = true;
+    api('/api/add', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'id=' + encodeURIComponent(v.id) + '&singer=' + encodeURIComponent(singer) })
+      .then(function(){ btn.textContent = '✓'; btn.classList.add('done'); toast('🎉 Added! Get ready, ' + singer + '!'); refresh(); })
+      .catch(function(e){ btn.disabled = false; toast(e.message); });
+  }
+
+  function refresh(){
+    api('/api/state').then(function(s){
+      if (s.now) { $('nowSinger').textContent = s.now.singer + ' is singing'; $('nowSong').textContent = s.now.title; }
+      else { $('nowSinger').textContent = 'Waiting for the next singer…'; $('nowSong').textContent = 'Add a song below!'; }
+      var q = $('queue'); q.textContent = '';
+      if (!s.queue || !s.queue.length) { q.appendChild(el('div','muted','The queue is empty. Be the first! 🎤')); return; }
+      var me = nameEl.value.trim().toLowerCase();
+      s.queue.forEach(function(it, i){
+        var row = el('div','q' + (me && it.singer.toLowerCase() === me ? ' me' : ''));
+        var n = el('div','n', String(i + 1)); n.style.background = color(it.singer);
+        var t = el('div','t'); t.appendChild(el('b',null,it.singer)); t.appendChild(el('small',null,it.title));
+        row.appendChild(n); row.appendChild(t); q.appendChild(row);
+      });
+    }).catch(function(){});
+  }
+  refresh();
+  setInterval(function(){ if (!document.hidden) refresh(); }, 4000);
+})();
+</script>
+</body>
+</html>

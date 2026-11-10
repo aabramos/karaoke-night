@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One screen, many layers. Only one or two are visible at a time. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.karaoketv.StageView
+        android:id="@+id/stageBg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- The YouTube player is added here only while the party is on (frees memory in the lobby) -->
+    <FrameLayout
+        android:id="@+id/stageContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:descendantFocusability="blockDescendants"
+        android:visibility="invisible" />
+
+    <include
+        android:id="@+id/lobby"
+        layout="@layout/lobby" />
+
+    <include
+        android:id="@+id/hud"
+        layout="@layout/stage_hud"
+        android:visibility="gone" />
+
+    <include
+        android:id="@+id/queuePanel"
+        layout="@layout/queue_panel"
+        android:visibility="gone" />
+
+    <include
+        android:id="@+id/intermission"
+        layout="@layout/intermission"
+        android:visibility="gone" />
+
+    <include
+        android:id="@+id/scoreLayer"
+        layout="@layout/score"
+        android:visibility="gone" />
+
+    <include
+        android:id="@+id/boardLayer"
+        layout="@layout/leaderboard"
+        android:visibility="gone" />
+
+    <include
+        android:id="@+id/pickerLayer"
+        layout="@layout/picker"
+        android:visibility="gone" />
+
+    <include
+        android:id="@+id/sheetLayer"
+        layout="@layout/sheet"
+        android:visibility="gone" />
+
+    <include
+        android:id="@+id/qrLayer"
+        layout="@layout/qr_big"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/toast"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="22dp"
+        android:background="@drawable/pill_bg"
+        android:elevation="8dp"
+        android:maxWidth="640dp"
+        android:paddingHorizontal="24dp"
+        android:paddingVertical="12dp"
+        android:textColor="@color/text_main"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <com.karaoketv.ConfettiView
+        android:id="@+id/confetti"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+</FrameLayout>

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Full-screen join code: big enough to scan from the sofa. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/scrim"
+    android:clickable="true">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/panel_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="30dp">
+
+        <com.karaoketv.QrView
+            android:id="@+id/bigQr"
+            android:layout_width="300dp"
+            android:layout_height="300dp" />
+
+        <LinearLayout
+            android:layout_width="380dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="32dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-black"
+                android:shadowColor="@color/neon_pink"
+                android:shadowRadius="20"
+                android:text="📱 JOIN THE PARTY"
+                android:textColor="#FFFFFF"
+                android:textSize="32sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:lineSpacingExtra="8dp"
+                android:text="1.  Join the same Wi-Fi as the TV\n2.  Point your phone camera at the code\n3.  Search a song, tap  +  and get ready!"
+                android:textColor="@color/text_main"
+                android:textSize="19sp" />
+
+            <TextView
+                android:id="@+id/bigQrUrl"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:textColor="@color/neon_cyan"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/bigQrClose"
+                style="@style/TvButton.Primary"
+                android:layout_marginTop="22dp"
+                android:text="Got it" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
