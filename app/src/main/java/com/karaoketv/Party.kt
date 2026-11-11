@@ -143,8 +143,6 @@ class PartyBackend(
 
     interface Listener {
         fun onPhoneAdded(item: QueueItem)
-        /** A phone removed a player: refresh anything on screen that lists players or scores. */
-        fun onPlayersChanged()
     }
 
     private val listener = WeakReference(listener)
@@ -159,7 +157,20 @@ class PartyBackend(
         return arr.toString()
     }
 
+    // Every phone asks for this every few seconds: build it at most once a second and share it
+    @Volatile private var cachedState: String? = null
+    @Volatile private var cachedAt = 0L
+
+    /** Call after anything phones show has changed, so the next update is fresh. */
+    fun invalidate() { cachedState = null }
+
     override fun stateJson(): String {
+        val now = android.os.SystemClock.elapsedRealtime()
+        cachedState?.let { if (now - cachedAt < STATE_CACHE_MS) return it }
+        return buildState().also { cachedState = it; cachedAt = now }
+    }
+
+    private fun buildState(): String {
         val o = JSONObject()
         queue.current?.let { o.put("now", JSONObject().put("singer", it.singer).put("title", it.song.title)) }
         val arr = JSONArray()
@@ -172,12 +183,6 @@ class PartyBackend(
         o.put("picks", picks)
         // Everyone who has sung or been picked, so guests can tap their name instead of typing it
         o.put("players", JSONArray().also { a -> board.players().forEach { a.put(it) } })
-        // Tonight's podium: the three best solo singers, each with their best score
-        o.put("top", JSONArray().also { a ->
-            board.topPlayers(board.tonight(), 3).forEach {
-                a.put(JSONObject().put("name", it.name).put("score", it.score).put("song", it.song.take(80)))
-            }
-        })
         // Tonight's top 3 singers (best score each) and the best duet, for the phones' podium
         o.put("top", JSONArray().also { a ->
             board.tonightBest(3).forEach { a.put(JSONObject().put("name", it.name).put("score", it.score)) }
@@ -204,42 +209,45 @@ class PartyBackend(
         val item = QueueItem(song, name, fromPhone = true, duet = duet)
         val err = queue.add(item)
         if (err == null) {
+            invalidate()
             board.rememberPlayers(name.split(DUET_JOIN))
             main.post { listener.get()?.onPhoneAdded(item) }
         }
         return err
     }
-
-    override fun removePlayer(name: String?): String? {
-        if (name.isNullOrBlank()) return "Choose a player to remove."
-        if (!board.removePlayer(name)) return "That player isn't on the list any more."
-        main.post { listener.get()?.onPlayersChanged() }
-        return null
-    }
 }
 
-/** Saves the queue (including whoever is on stage) so an accidental exit or crash doesn't lose it. */
+private const val STATE_CACHE_MS = 1000L
+
+/**
+ * Saves the queue (including whoever is on stage) so an accidental exit or crash doesn't lose it.
+ * One short row per song: [video ID, title, channel, duration, singer, flags] (flags: 1 = added
+ * from a phone, 2 = duet).
+ */
 object QueueStore {
     fun save(prefs: android.content.SharedPreferences, queue: PartyQueue) {
         val arr = JSONArray()
         (listOfNotNull(queue.current) + queue.snapshot()).forEach {
-            arr.put(JSONObject().put("i", it.song.id).put("t", it.song.title).put("c", it.song.channel)
-                .put("d", it.song.duration).put("s", it.singer).put("p", it.fromPhone).put("du", it.duet))
+            arr.put(JSONArray().put(it.song.id).put(it.song.title.take(100)).put(it.song.channel.take(40))
+                .put(it.song.duration).put(it.singer).put((if (it.fromPhone) 1 else 0) or (if (it.duet) 2 else 0)))
         }
-        prefs.edit().putString("queue", arr.toString()).apply()
+        prefs.edit().putString("q", arr.toString()).remove("queue").apply()
     }
 
     fun restore(prefs: android.content.SharedPreferences, queue: PartyQueue) {
-        val arr = runCatching { JSONArray(prefs.getString("queue", "[]")) }.getOrNull() ?: return
+        val arr = runCatching { JSONArray(prefs.getString("q", null) ?: prefs.getString("queue", "[]")) }.getOrNull() ?: return
         for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            val id = o.optString("i")
-            val duet = o.optBoolean("du", false)
-            val raw = o.optString("s")
+            val r = arr.optJSONArray(i)
+            val o = if (r == null) arr.optJSONObject(i) ?: continue else null      // before 3.12: objects
+            val id = r?.optString(0) ?: o!!.optString("i")
+            val flags = r?.optInt(5) ?: ((if (o!!.optBoolean("p", false)) 1 else 0) or (if (o.optBoolean("du", false)) 2 else 0))
+            val duet = flags and 2 != 0
+            val raw = r?.optString(4) ?: o!!.optString("s")
             val name = (if (duet) raw.split(DUET_JOIN).let { duetName(it.getOrNull(0), it.getOrNull(1)) } else cleanName(raw)) ?: continue
             if (!isVideoId(id)) continue
-            queue.add(QueueItem(Song(id, o.optString("t").take(150), o.optString("c").take(80), o.optString("d").take(10)),
-                name, o.optBoolean("p", false), duet = duet))
+            val song = if (r != null) Song(id, r.optString(1).take(150), r.optString(2).take(80), r.optString(3).take(10))
+            else Song(id, o!!.optString("t").take(150), o.optString("c").take(80), o.optString("d").take(10))
+            queue.add(QueueItem(song, name, flags and 1 != 0, duet = duet))
         }
     }
 }

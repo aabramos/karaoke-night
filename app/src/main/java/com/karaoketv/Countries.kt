@@ -64,7 +64,7 @@ object Countries {
     private fun make(code: String?): Country? {
         val c = code?.uppercase(Locale.ROOT) ?: return null
         if (c.length != 2 || !c.all { it in 'A'..'Z' }) return null
-        val name = Locale("", c).getDisplayCountry(Locale.ENGLISH)
+        val name = Locale.forLanguageTag("und-$c").getDisplayCountry(Locale.ENGLISH)   // "und" = any language
         if (name.isBlank() || name == c) return null
         return Country(c, name, flag(c), LANG[c] ?: "en")
     }
@@ -111,7 +111,7 @@ object Countries {
         if (c.isInternational) return INTERNATIONAL_PICKS
         HAND[c.code]?.let { return it }
         val n = c.name
-        val language = Locale(c.language).getDisplayLanguage(Locale.ENGLISH)
+        val language = Locale.forLanguageTag(c.language).getDisplayLanguage(Locale.ENGLISH)
         val own = buildList {
             add("${c.flag} Top hits" to "$n top hits")
             add("🎶 Local favourites" to "$n songs")

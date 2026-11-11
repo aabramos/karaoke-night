@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="bg_deep">#0B0614</color>
-    <color name="bg_card">#22163D</color>
     <color name="neon_pink">#FF3DA5</color>
     <color name="neon_cyan">#2EE6FF</color>
     <color name="gold">#FFD23F</color>

@@ -65,6 +65,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private lateinit var search: SongSearch
     private lateinit var board: Leaderboard
     private lateinit var history: History
+    private lateinit var achievements: AchievementBook
     private lateinit var music: LobbyMusic
     private lateinit var sfx: Sfx
 
@@ -78,6 +79,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private lateinit var scoreLayer: View
     private lateinit var boardLayer: View
     private lateinit var aboutLayer: View
+    private lateinit var achLayer: View
     private lateinit var pickerLayer: View
     private lateinit var sheetLayer: View
     private lateinit var qrLayer: View
@@ -159,6 +161,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
         board = Leaderboard(this)
         history = History(this)
+        achievements = AchievementBook(this)
+        // First run of this version: award achievements for the scores already saved (off the main thread)
+        io.execute { runCatching { achievements.backfill(board.all()) } }
         music = LobbyMusic(this)
         sfx = Sfx(this).also { it.master = volume / 100f }
 
@@ -171,6 +176,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         scoreLayer = findViewById(R.id.scoreLayer)
         boardLayer = findViewById(R.id.boardLayer)
         aboutLayer = findViewById(R.id.aboutLayer)
+        achLayer = findViewById(R.id.achLayer)
         pickerLayer = findViewById(R.id.pickerLayer)
         sheetLayer = findViewById(R.id.sheetLayer)
         qrLayer = findViewById(R.id.qrLayer)
@@ -201,6 +207,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
         click(R.id.btnBoard) { showBoard() }
         click(R.id.boardClose) { hideBoard() }
+        click(R.id.achClose) { hideSinger() }
         click(R.id.btnAbout) { showAbout() }
         click(R.id.aboutClose) { hideAbout() }
         click(R.id.aboutOpen) { openProjectPage() }
@@ -243,10 +250,19 @@ class MainActivity : Activity(), PartyBackend.Listener {
         click(R.id.btnPanelAdd) { panelSearchMode() }
         click(R.id.pickerGo) { confirmPicker(findViewById<EditText>(R.id.pickerInput).text.toString()) }
         click(R.id.pickerCancel) { closePicker() }
-        for ((tab, view) in listOf(R.id.tabTonight to BoardView.TONIGHT, R.id.tabAll to BoardView.ALL, R.id.tabDuets to BoardView.DUETS)) {
+        for ((tab, view) in listOf(R.id.tabTonight to BoardView.TONIGHT, R.id.tabAll to BoardView.ALL,
+                R.id.tabDuets to BoardView.DUETS, R.id.tabAch to BoardView.ACHIEVEMENTS)) {
             click(tab) { renderBoard(view) }
             findViewById<View>(tab).setOnFocusChangeListener { _, f -> if (f) renderBoard(view) }
         }
+        // Typing a name filters the buttons: with dozens of players, yours is a few letters away
+        findViewById<EditText>(R.id.pickerInput).addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (!pickerTyping && pickerLayer.isShown && !pickerRemove) { pickerPage = 0; renderPickerNames(focusFirst = false) }
+            }
+        })
         findViewById<EditText>(R.id.pickerInput).setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) { confirmPicker(v.text.toString()); true } else false
         }
@@ -258,6 +274,69 @@ class MainActivity : Activity(), PartyBackend.Listener {
         QueueStore.restore(prefs, queue)   // songs survive an accidental exit
         goLobby()
         lobbyBrowser.runQuickPick(0)
+        if (savedInstanceState == null) playIntro()
+    }
+
+    // =====================================================================================
+    // Opening animation (about 3 seconds; any key or tap skips it)
+    // =====================================================================================
+
+    private var intro: View? = null
+
+    private fun playIntro() {
+        val v = findViewById<View>(R.id.introLayer) ?: return
+        // Animations switched off in the system settings (accessibility): straight to the party
+        if (Build.VERSION.SDK_INT >= 26 && !ValueAnimator.areAnimatorsEnabled()) { (v.parent as? ViewGroup)?.removeView(v); return }
+        intro = v
+        v.visibility = View.VISIBLE
+        v.setOnClickListener { finishIntro(fast = true) }
+        lobby.animate().cancel()
+        lobby.alpha = 0f
+        val mic = findViewById<View>(R.id.introMic)
+        val karaoke = findViewById<View>(R.id.introKaraoke)
+        val night = findViewById<View>(R.id.introNight)
+        val tag = findViewById<View>(R.id.introTag)
+        // 1) the mic drops in and bounces
+        mic.alpha = 0f; mic.scaleX = 0.2f; mic.scaleY = 0.2f; mic.rotation = -25f
+        mic.animate().alpha(1f).scaleX(1f).scaleY(1f).rotation(0f).setStartDelay(150).setDuration(550)
+            .setInterpolator(OvershootInterpolator(2.2f)).start()
+        // 2) KARAOKE slides in from the left, NIGHT from the right
+        karaoke.alpha = 0f; karaoke.translationX = -px(260).toFloat()
+        karaoke.animate().alpha(1f).translationX(0f).setStartDelay(450).setDuration(500).setInterpolator(DecelerateInterpolator(2f)).start()
+        night.alpha = 0f; night.translationX = px(260).toFloat()
+        night.animate().alpha(1f).translationX(0f).setStartDelay(650).setDuration(500).setInterpolator(DecelerateInterpolator(2f)).start()
+        // 3) NIGHT flickers like a neon sign warming up, then the tagline and a burst of confetti
+        tag.alpha = 0f; tag.translationY = px(14).toFloat()
+        tag.animate().alpha(1f).translationY(0f).setStartDelay(1350).setDuration(400).start()
+        ui.postDelayed(introPop, 350)
+        ui.postDelayed(introFlicker, 1200)
+        ui.postDelayed(introEnd, 3000)
+    }
+
+    private val introPop = Runnable { sfx.play(sfx.pop, 0.6f) }
+
+    private val introFlicker = Runnable {
+        val night = findViewById<View>(R.id.introNight) ?: return@Runnable
+        ValueAnimator.ofFloat(1f, 0.25f, 1f, 0.5f, 1f).apply {
+            duration = 450
+            addUpdateListener { night.alpha = it.animatedValue as Float }
+            start()
+        }
+        confetti.burst(90)
+        sfx.play(sfx.reveal, 0.35f)
+    }
+
+    private val introEnd = Runnable { finishIntro(fast = false) }
+
+    /** Fades the opening out and the lobby in; the intro's views are then thrown away. */
+    private fun finishIntro(fast: Boolean) {
+        val v = intro ?: return
+        intro = null
+        listOf(introPop, introFlicker, introEnd).forEach { ui.removeCallbacks(it) }
+        val ms = if (fast) 200L else 500L
+        v.animate().alpha(0f).scaleX(1.06f).scaleY(1.06f).setStartDelay(0).setDuration(ms)
+            .withEndAction { (v.parent as? ViewGroup)?.removeView(v) }.start()
+        lobby.animate().alpha(1f).setStartDelay(0).setDuration(ms).start()
     }
 
     /**
@@ -280,7 +359,11 @@ class MainActivity : Activity(), PartyBackend.Listener {
             }
         }
         if (Build.VERSION.SDK_INT >= 30) {
-            w.setDecorFitsSystemWindows(false)
+            // Android 15+ already draws edge to edge for this app; older versions need asking
+            if (Build.VERSION.SDK_INT < 35) {
+                @Suppress("DEPRECATION")
+                w.setDecorFitsSystemWindows(false)
+            }
             w.insetsController?.let {
                 it.hide(WindowInsets.Type.systemBars())
                 it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -362,7 +445,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
         super.onTrimMemory(level)
         ImageLoader.clear()
         search.trimMemory()
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+        // Memory is getting tight: 10-15 are "running low/critical" (sent by Android 13 and older),
+        // BACKGROUND and above are what newer versions send
+        if (level in 10..15 || level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
             if (mode != Mode.LOBBY) lobbyBrowser.clear()
             if (!queuePanel.isShown) panelBrowser.clear()
             // a fresh player next time sheds whatever the web page has accumulated
@@ -383,6 +468,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         lastInteraction = System.currentTimeMillis()
         val down = e.action == KeyEvent.ACTION_DOWN
         val first = down && e.repeatCount == 0
+        // Any button during the opening animation skips it (and does nothing else)
+        if (intro != null) { if (first) finishIntro(fast = true); return true }
         val code = e.keyCode
         val back = code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE
         val ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER ||
@@ -391,6 +478,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         // Overlays first, topmost first (a confirmation sheet can sit on top of the picker)
         if (sheetLayer.isShown) { if (back) { if (first) cancelSheet(); return true }; return super.dispatchKeyEvent(e) }
         if (pickerLayer.isShown) { if (back) { if (first) pickerBack(); return true }; return super.dispatchKeyEvent(e) }
+        if (achLayer.isShown) { if (back) { if (first) hideSinger(); return true }; return super.dispatchKeyEvent(e) }
         if (boardLayer.isShown) { if (back) { if (first) hideBoard(); return true }; return super.dispatchKeyEvent(e) }
         if (qrLayer.isShown) { if (back) { if (first) hideBigQr(); return true }; return super.dispatchKeyEvent(e) }
         if (countryLayer.isShown) { if (back) { if (first) hideCountries(); return true }; return super.dispatchKeyEvent(e) }
@@ -571,6 +659,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private var duetFirst: String? = null
     /** Remove mode: tapping a player asks to remove them (and their scores). */
     private var pickerRemove = false
+    /** Which page of names is showing (many players), and a guard while the box is cleared. */
+    private var pickerPage = 0
+    private var pickerTyping = false
 
     private fun openPicker(song: Song) {
         pickerSong = song
@@ -587,7 +678,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
     /** Names, duet and surprise buttons, title and the Add button, for the current step. */
     private fun renderPicker() {
         val input = findViewById<EditText>(R.id.pickerInput)
+        pickerTyping = true
         input.setText("")
+        pickerTyping = false
+        pickerPage = 0
         val first = duetFirst
         findViewById<TextView>(R.id.pickerTitle).text = when {
             pickerRemove -> "🗑 REMOVE A PLAYER"
@@ -596,17 +690,37 @@ class MainActivity : Activity(), PartyBackend.Listener {
             else -> "👫 WHO SINGS WITH ${first.uppercase()}?"
         }
         findViewById<TextView>(R.id.pickerSong).text =
-            if (pickerRemove) "Choose who to remove. Their scores leave the hall of fame." else pickerSong?.title.orEmpty()
+            if (pickerRemove) "Choose who to remove. Their scores and achievements are deleted too." else pickerSong?.title.orEmpty()
         findViewById<View>(R.id.pickerInputRow).visibility = if (pickerRemove) View.GONE else View.VISIBLE
         findViewById<View>(R.id.pickerCancel).visibility = if (pickerRemove) View.GONE else View.VISIBLE
-        // Singers alone: queued solo singers, recent singers and both halves of recent duets.
-        // Remove mode lists saved players only (12 fit, 4 per row, without the typing row).
-        val names = (if (pickerRemove) board.players()
+        val singNow = mode == Mode.LOBBY && queue.isEmpty()
+        findViewById<TextView>(R.id.pickerGo).text = when {
+            pickerDuet && first == null -> "Next ›"
+            singNow -> "🎤 Sing now!"
+            else -> "＋ Add"
+        }
+        renderPickerNames(focusFirst = true)
+    }
+
+    /**
+     * The name buttons. With many players: typing in the box filters them (names starting with
+     * the text first), and remove mode pages through everyone, 8 at a time.
+     */
+    private fun renderPickerNames(focusFirst: Boolean) {
+        val first = duetFirst
+        val typed = findViewById<EditText>(R.id.pickerInput).text.toString().trim().lowercase()
+        val all = (if (pickerRemove) board.players()
         else queue.snapshot().flatMap { it.singer.split(DUET_JOIN) } +
-            (queue.current?.singer?.split(DUET_JOIN) ?: emptyList()) + board.recentNames(12))
+            (queue.current?.singer?.split(DUET_JOIN) ?: emptyList()) + board.players())
             .distinctBy { it.lowercase() }
             .filter { !it.equals(first, ignoreCase = true) }
-            .take(if (pickerRemove) 12 else 8)
+        val matching = if (typed.isEmpty() || pickerRemove) all
+        else all.filter { it.lowercase().startsWith(typed) } + all.filter { it.lowercase().let { n -> !n.startsWith(typed) && n.contains(typed) } }
+        val perPage = if (pickerRemove) 8 else 6
+        val pages = maxOf(1, (matching.size + perPage - 1) / perPage)
+        pickerPage = pickerPage.coerceIn(0, pages - 1)
+        val names = matching.drop(pickerPage * perPage).take(perPage)
+
         val box = findViewById<LinearLayout>(R.id.pickerNames)
         box.removeAllViews()
         names.chunked(if (pickerRemove) 4 else 3).forEach { rowNames ->
@@ -621,19 +735,38 @@ class MainActivity : Activity(), PartyBackend.Listener {
             }
             box.addView(row)
         }
-        // Own row: duet switch, a one-click fun stage name (no typing needed), remove players
+        if (names.isEmpty() && typed.isNotEmpty()) box.addView(label("New singer: press ${if (isTouch) "Add" else "OK"} to add \"${typed.take(20)}\"", 15f, R.color.text_dim).apply { gravity = Gravity.CENTER })
+        // Own row: page buttons, duet switch, a one-click fun stage name, remove players
         val extras = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         val lp = { LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(52)).apply { setMargins(px(5), px(5), px(5), px(5)) } }
+        if (pages > 1) {
+            extras.addView(styledButton("‹", false).apply {
+                minWidth = px(52); contentDescription = "Previous names"
+                isEnabled = pickerPage > 0; alpha = if (isEnabled) 1f else 0.35f
+                setOnClickListener { pickerPage--; renderPickerNames(focusFirst = false); findViewById<View>(R.id.pickerPrev)?.requestFocus() }
+                id = R.id.pickerPrev
+            }, lp())
+            extras.addView(label("${pickerPage + 1}/$pages", 14f, R.color.text_dim).apply { gravity = Gravity.CENTER; setPadding(px(4), 0, px(4), 0) })
+            extras.addView(styledButton("›", false).apply {
+                minWidth = px(52); contentDescription = "More names"
+                isEnabled = pickerPage < pages - 1; alpha = if (isEnabled) 1f else 0.35f
+                setOnClickListener { pickerPage++; renderPickerNames(focusFirst = false); findViewById<View>(R.id.pickerNext)?.requestFocus() }
+                id = R.id.pickerNext
+            }, lp())
+        }
         if (pickerRemove) {
-            if (names.isEmpty()) box.addView(label("No saved players.", 16f, R.color.text_dim).apply { gravity = Gravity.CENTER })
+            if (all.isEmpty()) box.addView(label("No saved players.", 16f, R.color.text_dim).apply { gravity = Gravity.CENTER })
             extras.addView(styledButton("✓ Done", true).apply { setOnClickListener { pickerRemove = false; renderPicker() } }, lp())
         } else {
             if (first == null) {
-                extras.addView(styledButton(if (pickerDuet) "🎤 Solo instead" else "👫 Duet", false).apply {
+                extras.addView(styledButton(if (pickerDuet) "🎤 Solo" else "👫 Duet", false).apply {
                     setOnClickListener { pickerDuet = !pickerDuet; duetFirst = null; renderPicker() }
                 }, lp())
             }
-            extras.addView(styledButton("🎲 Surprise name", false).apply { setOnClickListener { confirmPicker(randomStageName()) } }, lp())
+            extras.addView(styledButton("🎲 Surprise", false).apply {
+                contentDescription = "Surprise stage name"
+                setOnClickListener { confirmPicker(randomStageName()) }
+            }, lp())
             if (first == null && board.players().isNotEmpty()) {
                 extras.addView(styledButton("🗑", false).apply {
                     contentDescription = "Remove a player"
@@ -643,15 +776,11 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
         box.addView(extras)
         box.visibility = View.VISIBLE
-        val singNow = mode == Mode.LOBBY && queue.isEmpty()
-        findViewById<TextView>(R.id.pickerGo).text = when {
-            pickerDuet && first == null -> "Next ›"
-            singNow -> "🎤 Sing now!"
-            else -> "＋ Add"
-        }
         lockFocus()
-        val firstName = (box.getChildAt(0) as? ViewGroup)?.getChildAt(0)
-        (firstName ?: input).requestFocus()
+        if (focusFirst) {
+            val firstName = (box.getChildAt(0) as? ViewGroup)?.getChildAt(0)
+            (firstName ?: findViewById<EditText>(R.id.pickerInput)).requestFocus()
+        }
     }
 
     /** BACK in the picker steps back: out of remove mode, undo the first duet pick, then close. */
@@ -673,7 +802,11 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 "Keep $name" to { overlayReturnFocus = back; renderPicker() },
                 "🗑 Remove" to {
                     overlayReturnFocus = back
-                    if (board.removePlayer(name)) toast("🗑 $name removed")
+                    if (board.removePlayer(name)) {
+                        achievements.remove(name)
+                        history.forgetSinger(name)
+                        toast("🗑 $name removed")
+                    }
                     renderPicker()
                 },
             ),
@@ -1164,11 +1297,17 @@ class MainActivity : Activity(), PartyBackend.Listener {
         findViewById<TextView>(R.id.scVerdict).text = Judge.verdict(score)
 
         val entry = Entry(item.singer, score, item.song.title, System.currentTimeMillis(), duet = item.duet)
-        val badges = Badges.earned(entry, board.all().toList(), java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY))
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val before = board.all()                  // a snapshot: add() replaces the list, never changes it
+        val record = if (item.duet) null else achievements.of(item.singer)
+        val badges = Badges.earned(entry, board.tonightAll(), record?.songs ?: 0, record?.best, hour, limit = 9)
         val rank = board.add(entry)
+        val unlocked = runCatching { achievements.record(entry, before, rank, hour) }.getOrDefault(emptyList())
+        val lines = scoreBadgeLines(unlocked, badges)
         findViewById<TextView>(R.id.scBadge).apply {
-            text = badges.joinToString("   ·   ")
-            if (badges.isNotEmpty()) {
+            text = lines.joinToString("\n")
+            if (lines.isNotEmpty()) {
+                if (unlocked.isNotEmpty()) ui.postDelayed({ if (mode == Mode.SCORE) sfx.play(sfx.pop, 0.9f) }, 900)
                 visibility = View.VISIBLE
                 alpha = 0f; scaleX = 0.6f; scaleY = 0.6f
                 animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(900).setInterpolator(OvershootInterpolator(2.5f)).setDuration(420).start()
@@ -1210,6 +1349,25 @@ class MainActivity : Activity(), PartyBackend.Listener {
             }
             ui.postDelayed(scoreAutoNext, 1000)
         }, 1800)
+    }
+
+    /**
+     * The pill under the rank: newly unlocked achievements first ("🏅 NEW: 💎 90 club"), then the
+     * moment's highlights (personal best…) that aren't the same thing again. At most two lines.
+     */
+    private fun scoreBadgeLines(unlocked: List<Pair<String, Achievement>>, badges: List<String>): List<String> {
+        val lines = ArrayList<String>()
+        if (unlocked.isNotEmpty()) {
+            fun list(a: List<Achievement>, max: Int) = a.take(max).joinToString(", ") { "${it.icon} ${it.title}" } +
+                if (a.size > max) " +${a.size - max} more" else ""
+            val byPerson = unlocked.groupBy({ it.first }, { it.second })
+            lines += if (byPerson.size == 1 || byPerson.values.map { l -> l.map { it.id } }.distinct().size == 1)
+                "🏅 NEW: " + list(byPerson.values.first(), 3)
+            else "🏅 " + byPerson.entries.joinToString("  ·  ") { (who, a) -> "$who: " + list(a, 2) }
+        }
+        val icons = unlocked.map { it.second.icon }.toSet()
+        badges.filter { b -> icons.none { b.startsWith(it) } }.firstOrNull()?.let { lines += it }
+        return lines.take(2)
     }
 
     private val scoreAutoNext = object : Runnable {
@@ -1451,12 +1609,6 @@ class MainActivity : Activity(), PartyBackend.Listener {
     override fun onPhoneAdded(item: QueueItem) {
         sfx.play(sfx.pop)
         toast("📱 ${item.singer} added “${item.song.title.take(45)}”")
-    }
-
-    override fun onPlayersChanged() {
-        if (boardLayer.isShown) boardShows?.let { boardShows = null; renderBoard(it) }
-        // Only the remove list is redrawn: elsewhere a redraw would clear a name being typed
-        if (pickerLayer.isShown && pickerRemove && !sheetLayer.isShown) renderPicker()
     }
 
     private fun showBigQr() {
@@ -1766,7 +1918,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         restoreFocus()
     }
 
-    private enum class BoardView { TONIGHT, ALL, DUETS }
+    private enum class BoardView { TONIGHT, ALL, DUETS, ACHIEVEMENTS }
     private var boardShows: BoardView? = null
 
     private fun renderBoard(view: BoardView) {
@@ -1775,11 +1927,20 @@ class MainActivity : Activity(), PartyBackend.Listener {
         findViewById<View>(R.id.tabTonight).isSelected = view == BoardView.TONIGHT
         findViewById<View>(R.id.tabAll).isSelected = view == BoardView.ALL
         findViewById<View>(R.id.tabDuets).isSelected = view == BoardView.DUETS
+        findViewById<View>(R.id.tabAch).isSelected = view == BoardView.ACHIEVEMENTS
+        val achScroll = findViewById<View>(R.id.boardAchScroll)
+        val showAch = view == BoardView.ACHIEVEMENTS
+        achScroll.visibility = if (showAch) View.VISIBLE else View.GONE
+        listOf(R.id.podium, R.id.boardRows).forEach { findViewById<View>(it).visibility = if (showAch) View.GONE else View.VISIBLE }
+        if (showAch) { renderAchievementList(); return }
+        findViewById<LinearLayout>(R.id.boardAchRows).removeAllViews()
+        findViewById<TextView>(R.id.boardEmpty).text = "No scores yet. Grab a mic! 🎤"
         val entries = when (view) {
             BoardView.TONIGHT -> board.tonight()
             BoardView.ALL -> board.allTime()
             // Duets: tonight's if there are any, otherwise the best of all time
             BoardView.DUETS -> board.tonight(duet = true).ifEmpty { board.allTime(duet = true) }
+            BoardView.ACHIEVEMENTS -> emptyList()
         }
         val list = board.top(entries, 8)   // top 8 fits any screen
         findViewById<View>(R.id.boardEmpty).visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
@@ -1811,6 +1972,105 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 LinearLayout.LayoutParams(px(60), ViewGroup.LayoutParams.WRAP_CONTENT))
             rows.addView(row)
         }
+    }
+
+    // ---- achievements: a list of singers, OK on one opens everything they have (and haven't) ----
+
+    private fun renderAchievementList() {
+        val rows = findViewById<LinearLayout>(R.id.boardAchRows)
+        rows.removeAllViews()
+        val singers = achievements.singers()
+        val total = Achievements.ALL.size
+        findViewById<TextView>(R.id.boardEmpty).apply {
+            text = "No achievements yet. Sing a song to earn your first! 🎤"
+            visibility = if (singers.isEmpty()) View.VISIBLE else View.GONE
+        }
+        findViewById<View>(R.id.boardAchScroll).visibility = if (singers.isEmpty()) View.GONE else View.VISIBLE
+        singers.take(100).forEach { r ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundResource(R.drawable.card_bg)
+                isFocusable = true
+                isClickable = true
+                setPadding(px(14), px(6), px(14), px(6))
+                contentDescription = "${r.name}: ${r.unlocked.size} of $total achievements. Press to see them all."
+                setOnClickListener { showSinger(r.name) }
+            }
+            row.addView(TextView(this).apply { avatar(r.name); gravity = Gravity.CENTER; setTextColor(0xFF0B0614.toInt()); textSize = 14f },
+                LinearLayout.LayoutParams(px(32), px(32)))
+            row.addView(label(r.name, 17f, R.color.text_main, bold = true).apply { setPadding(px(10), 0, px(8), 0) },
+                LinearLayout.LayoutParams(px(170), ViewGroup.LayoutParams.WRAP_CONTENT))
+            // Their badges in catalogue order
+            row.addView(label(Achievements.ALL.filter { it.id in r.unlocked }.joinToString(" ") { it.icon }, 18f, R.color.text_main),
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(label("${r.unlocked.size}/$total", 18f, R.color.gold, bold = true).apply { gravity = Gravity.END },
+                LinearLayout.LayoutParams(px(64), ViewGroup.LayoutParams.WRAP_CONTENT))
+            rows.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(48)).apply { bottomMargin = px(6) })
+        }
+    }
+
+    private fun showSinger(name: String) {
+        val r = achievements.of(name) ?: return
+        singerReturnFocus = currentFocus           // the hall of fame keeps its own way back
+        val total = Achievements.ALL.size
+        findViewById<TextView>(R.id.achAvatar).avatar(r.name)
+        findViewById<TextView>(R.id.achTitle).text = "🏅 ${r.name.uppercase()}"
+        findViewById<TextView>(R.id.achSub).text =
+            "${r.unlocked.size} of $total achievements  ·  ${r.songs} song${if (r.songs == 1) "" else "s"} sung"
+        val grid = findViewById<LinearLayout>(R.id.achGrid)
+        grid.removeAllViews()
+        // Unlocked first (oldest first), then the ones still to get
+        val sorted = Achievements.ALL.filter { it.id in r.unlocked }.sortedBy { r.unlocked[it.id] } +
+            Achievements.ALL.filter { it.id !in r.unlocked }
+        sorted.chunked(4).forEach { chunk ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            chunk.forEach { a ->
+                val got = r.unlocked[a.id]
+                row.addView(achievementTile(a, got?.let { "✓ " + Achievements.dateOf(it) }),
+                    LinearLayout.LayoutParams(0, px(58), 1f).apply { setMargins(px(4), px(4), px(4), px(4)) })
+            }
+            repeat(4 - chunk.size) { row.addView(View(this), LinearLayout.LayoutParams(0, px(58), 1f).apply { setMargins(px(4), 0, px(4), 0) }) }
+            grid.addView(row)
+        }
+        achLayer.visibility = View.VISIBLE
+        popIn(achLayer)
+        lockFocus()
+        findViewById<View>(R.id.achClose).requestFocus()
+    }
+
+    /** One achievement: in colour with the date it was won, or faded with how to win it. */
+    private fun achievementTile(a: Achievement, won: String?): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(px(8), px(4), px(8), px(4))
+        background = android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = px(12).toFloat()
+            setColor(if (won != null) 0x33FFD23F else 0x14FFFFFF)
+            setStroke(px(1), if (won != null) getColor(R.color.gold) else 0x33FFFFFF)
+        }
+        contentDescription = "${a.title}: " + (won?.let { "unlocked ${it.removePrefix("✓ ")}" } ?: "locked. ${a.how}")
+        addView(TextView(context).apply {
+            text = a.icon; textSize = 22f; gravity = Gravity.CENTER
+            alpha = if (won != null) 1f else 0.35f
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(px(34), ViewGroup.LayoutParams.WRAP_CONTENT))
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(6), 0, 0, 0)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            addView(label(a.title, 13f, if (won != null) R.color.text_main else R.color.text_dim, bold = true))
+            addView(label(won ?: a.how, 11f, if (won != null) R.color.gold else R.color.text_dim).apply { maxLines = 2 })
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    }
+
+    private var singerReturnFocus: View? = null
+
+    private fun hideSinger() {
+        achLayer.visibility = View.GONE
+        lockFocus()
+        singerReturnFocus?.takeIf { it.isShown }?.requestFocus() ?: findViewById<View>(R.id.tabAch).requestFocus()
+        singerReturnFocus = null
     }
 
     private fun podiumColumn(e: Entry, place: Int): View {
@@ -1885,14 +2145,14 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     private fun hideAllOverlays() {
-        listOf(pickerLayer, sheetLayer, boardLayer, qrLayer, volumeLayer, aboutLayer).forEach { it.visibility = View.GONE }
+        listOf(pickerLayer, sheetLayer, boardLayer, qrLayer, volumeLayer, aboutLayer, achLayer).forEach { it.visibility = View.GONE }
         if (countryLayer.isShown) hideCountries()
         hideKeyboard()
         lockFocus()
     }
 
     private fun anyOverlayOpen() = pickerLayer.isShown || sheetLayer.isShown || boardLayer.isShown || qrLayer.isShown ||
-        countryLayer.isShown || volumeLayer.isShown || aboutLayer.isShown
+        countryLayer.isShown || volumeLayer.isShown || aboutLayer.isShown || achLayer.isShown
 
     /**
      * While a pop-up is open, nothing behind it can take the remote's focus: ▲ ▼ ◀ ▶ stay
@@ -1903,8 +2163,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val rule = if (block) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
         listOf(lobby, queuePanel, hud, intermission).forEach { (it as? ViewGroup)?.descendantFocusability = rule }
         // Pop-ups stacked on another (a sheet over the picker) only keep the top one reachable
-        val top = listOf(volumeLayer, aboutLayer, sheetLayer, countryLayer, qrLayer, boardLayer, pickerLayer).firstOrNull { it.isShown }
-        listOf(pickerLayer, boardLayer, qrLayer, countryLayer, sheetLayer, volumeLayer, aboutLayer).forEach {
+        val top = listOf(volumeLayer, aboutLayer, achLayer, sheetLayer, countryLayer, qrLayer, boardLayer, pickerLayer).firstOrNull { it.isShown }
+        listOf(pickerLayer, boardLayer, qrLayer, countryLayer, sheetLayer, volumeLayer, aboutLayer, achLayer).forEach {
             (it as? ViewGroup)?.descendantFocusability =
                 if (top == null || it === top) ViewGroup.FOCUS_AFTER_DESCENDANTS else ViewGroup.FOCUS_BLOCK_DESCENDANTS
         }

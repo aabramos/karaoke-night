@@ -38,15 +38,16 @@ public final class PartyServer {
         /** Adds a song; returns null on success or a short message for the guest. */
         /** [partner]: second singer for a duet, or null/empty for a solo. */
         String add(String videoId, String singer, String partner);
-
-        /** Removes a player and their scores; returns an error message or null. */
-        String removePlayer(String name);
+        // Removing players is deliberately not offered to phones: only the TV can do that.
     }
 
     private static final int MAX_HEAD = 8 * 1024;
     private static final int MAX_BODY = 2 * 1024;
     /** A whole request must arrive within this time, however slowly it trickles in. */
     private static final long REQUEST_DEADLINE_MS = 8_000;
+    private static final int THREADS = 5;
+    /** At most this many searches at once (each one waits on YouTube). */
+    private final java.util.concurrent.Semaphore searchSlots = new java.util.concurrent.Semaphore(3);
 
     /** Cleared on stop() so a lingering worker thread can never keep the app's screen in memory. */
     private volatile Backend backend;
@@ -73,7 +74,10 @@ public final class PartyServer {
         if (ss == null) ss = tryBind(0);
         if (ss == null) return -1;
         server = ss;
-        pool = new ThreadPoolExecutor(2, 3, 30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(6));
+        // Big parties: a few dozen phones each ask for updates every few seconds. Updates are tiny
+        // (cached for a second), searches are capped separately, so 5 threads and a short line are plenty.
+        pool = new ThreadPoolExecutor(THREADS, THREADS, 20, TimeUnit.SECONDS, new ArrayBlockingQueue<>(48));
+        pool.allowCoreThreadTimeOut(true);   // no idle threads between parties
         final ServerSocket listening = ss;
         Thread acceptor = new Thread(() -> acceptLoop(listening), "party-server");
         acceptor.setDaemon(true);
@@ -95,7 +99,7 @@ public final class PartyServer {
         try {
             ServerSocket ss = new ServerSocket();
             ss.setReuseAddress(true);
-            ss.bind(new InetSocketAddress(port), 16);
+            ss.bind(new InetSocketAddress(port), 64);
             return ss;
         } catch (IOException e) {
             return null;
@@ -186,11 +190,16 @@ public final class PartyServer {
                     send(out, 400, "application/json", "{\"error\":\"Type a song name\"}");
                 } else if (!allow("s" + ip, 20)) {
                     send(out, 429, "application/json", "{\"error\":\"Slow down a little and try again in a minute\"}");
+                } else if (!searchSlots.tryAcquire()) {
+                    // Searches wait on YouTube; capping them keeps threads free for everyone's quick updates
+                    send(out, 503, "application/json", "{\"error\":\"Lots of people are searching. Try again in a few seconds.\"}");
                 } else {
                     try {
                         send(out, 200, "application/json; charset=utf-8", b.searchJson(q.trim()));
                     } catch (Exception e) {
                         send(out, 502, "application/json", "{\"error\":\"Search failed. Try again.\"}");
+                    } finally {
+                        searchSlots.release();
                     }
                 }
             } else if (method.equals("POST") && path.equals("/api/add")) {
@@ -198,14 +207,6 @@ public final class PartyServer {
                     send(out, 429, "application/json", "{\"error\":\"Too many songs at once! Wait a minute.\"}");
                 } else {
                     String err = b.add(params.get("id"), params.get("singer"), params.get("partner"));
-                    send(out, err == null ? 200 : 400, "application/json; charset=utf-8",
-                            err == null ? "{\"ok\":true}" : "{\"error\":" + jsonString(err) + "}");
-                }
-            } else if (method.equals("POST") && path.equals("/api/players/remove")) {
-                if (!allow("r" + ip, 6)) {
-                    send(out, 429, "application/json", "{\"error\":\"Too many changes at once! Wait a minute.\"}");
-                } else {
-                    String err = b.removePlayer(params.get("name"));
                     send(out, err == null ? 200 : 400, "application/json; charset=utf-8",
                             err == null ? "{\"ok\":true}" : "{\"error\":" + jsonString(err) + "}");
                 }

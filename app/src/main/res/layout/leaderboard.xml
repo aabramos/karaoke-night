@@ -6,7 +6,7 @@
     android:clickable="true">
 
     <LinearLayout
-        android:layout_width="680dp"
+        android:layout_width="780dp"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:gravity="center_horizontal"
@@ -45,6 +45,12 @@
                 android:layout_marginStart="12dp"
                 android:text="👫 Duets" />
 
+            <TextView
+                android:id="@+id/tabAch"
+                style="@style/TvButton"
+                android:layout_marginStart="12dp"
+                android:text="🏅 Achievements" />
+
             <!-- Back to the party (BACK on the remote does the same) -->
             <TextView
                 android:id="@+id/boardClose"
@@ -74,9 +80,30 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="40dp"
+            android:gravity="center"
             android:text="No scores yet. Grab a mic! 🎤"
             android:textColor="@color/text_dim"
             android:textSize="20sp"
             android:visibility="gone" />
+
+        <!-- Achievements tab: every singer and what they've unlocked; OK opens their full list -->
+        <ScrollView
+            android:id="@+id/boardAchScroll"
+            android:layout_width="match_parent"
+            android:layout_height="350dp"
+            android:layout_marginTop="14dp"
+            android:fadingEdgeLength="24dp"
+            android:requiresFadingEdge="vertical"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/boardAchRows"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp" />
+        </ScrollView>
     </LinearLayout>
 </FrameLayout>

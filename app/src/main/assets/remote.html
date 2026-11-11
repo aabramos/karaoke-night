@@ -47,15 +47,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 #toast.show{transform:translateX(-50%) translateY(0)}
 .players{display:flex;flex-wrap:wrap;gap:8px;padding:10px 0 0}
 .players .chip.on{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan) inset}
-.players.edit .chip{border-color:#ff5a6e;color:#ffc2ca}
-.phint{display:flex;justify-content:space-between;align-items:center;color:var(--dim);font-size:13px;padding:6px 4px 0}
-.link{background:none;border:0;color:var(--cyan);font-size:13px;font-weight:700;padding:6px 0}
-#modal{position:fixed;inset:0;background:rgba(5,2,12,.78);display:none;align-items:center;justify-content:center;padding:20px;z-index:5}
-#modal.show{display:flex}
-#modal .box{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:20px;max-width:340px;text-align:center}
-#modal b{font-size:20px;display:block;margin-bottom:8px}
-#modal p{color:var(--dim);margin:0 0 16px;font-size:14px}
-#modal .row{justify-content:center}
+.phint{color:var(--dim);font-size:13px;padding:6px 4px 0}
 .btn.ghost{background:var(--card2);border:1px solid var(--line)}
 /* tonight's top 3: 1st in the middle, raised; the page order stays 1, 2, 3 for screen readers */
 .podium{display:grid;grid-template-columns:1fr 1.15fr 1fr;gap:8px;align-items:end}
@@ -75,7 +67,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .pod.lead{animation:lead 1.2s ease-out}
 @keyframes lead{0%{transform:scale(.85)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
 .topnote{margin-top:8px;font-size:13px;color:var(--dim);text-align:center}
-.btn:focus-visible,.chip:focus-visible,.add:focus-visible,.link:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
+.btn:focus-visible,.chip:focus-visible,.add:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.now .mic,.pod.lead{animation:none}#toast{transition:none}.btn:active{transform:none}}
 .spin{display:inline-block;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
 </style>
@@ -92,9 +84,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 <input id="name" maxlength="20" placeholder="Who's singing?" autocomplete="nickname" aria-label="Your name">
 <input id="partner" class="partner" maxlength="20" placeholder="👫 Duet partner (optional)" autocomplete="off" aria-label="Duet partner, optional">
 <div class="players" id="players"></div>
-<div class="phint" id="phint" hidden><span id="phintText">Tap a name to fill the box above</span><button class="link" id="editPlayers" type="button">Edit</button></div>
-<div id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalText"><div class="box"><b id="modalTitle"></b><p id="modalText"></p>
-  <div class="row"><button class="btn ghost" id="modalKeep" type="button">Keep</button><button class="btn" id="modalRemove" type="button">🗑 Remove</button></div></div></div>
+<div class="phint" id="phint" hidden></div>
 
 <h2 id="findTitle">FIND A SONG</h2>
 <form class="row" id="sf"><input id="q" type="search" maxlength="80" placeholder="Song or artist…" enterkeyhint="search" aria-label="Search a song or artist"><button class="btn">Go</button></form>
@@ -117,60 +107,47 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
   try { nameEl.value = localStorage.getItem('singer') || ''; } catch(e) {}
   nameEl.addEventListener('input', function(){ try { localStorage.setItem('singer', nameEl.value.trim()); } catch(e) {} });
 
-  // ---- registered players: tap to fill a name; Edit to remove (with a confirmation) ----
+  // ---- registered players: tap a name to fill the box being typed in ----
+  // Only the TV can remove players. With many players, the most recent ones show first and
+  // typing filters the list, so it never becomes a wall of names.
   var partnerEl = $('partner');
   var target = nameEl;                       // the box a tapped name goes into: the last one used
-  nameEl.addEventListener('focus', function(){ target = nameEl; });
-  partnerEl.addEventListener('focus', function(){ target = partnerEl; });
-  var players = [], playersKey = '', editing = false;
+  var players = [], playersKey = '';
+  var SHOWN = 12;
+  nameEl.addEventListener('focus', function(){ target = nameEl; renderPlayers(); });
+  partnerEl.addEventListener('focus', function(){ target = partnerEl; renderPlayers(); });
 
   function renderPlayers(){
     var box = $('players'); box.textContent = '';
-    box.classList.toggle('edit', editing);
-    $('phint').hidden = players.length === 0;
-    $('phintText').textContent = editing ? 'Tap a name to remove it' : 'Tap a name to fill the box above';
-    $('editPlayers').textContent = editing ? 'Done' : 'Edit';
-    players.forEach(function(name){
-      var c = el('button', 'chip', editing ? '✕ ' + name : name);
+    var typed = target.value.trim().toLowerCase();
+    var chosen = [nameEl.value.trim().toLowerCase(), partnerEl.value.trim().toLowerCase()];
+    var list = players;
+    var exact = players.some(function(p){ return p.toLowerCase() === typed; });
+    if (typed && !exact) {
+      // typing: names that start with it first, then names that contain it
+      var starts = players.filter(function(p){ return p.toLowerCase().indexOf(typed) === 0; });
+      var has = players.filter(function(p){ var i = p.toLowerCase().indexOf(typed); return i > 0; });
+      list = starts.concat(has);
+    }
+    list.slice(0, SHOWN).forEach(function(name){
+      var c = el('button', 'chip', name);
       c.type = 'button';
-      if (!editing && (nameEl.value.trim().toLowerCase() === name.toLowerCase() ||
-                       partnerEl.value.trim().toLowerCase() === name.toLowerCase())) c.classList.add('on');
+      if (chosen.indexOf(name.toLowerCase()) >= 0) { c.classList.add('on'); c.setAttribute('aria-pressed','true'); }
       c.onclick = function(){
-        if (editing) { askRemove(name); return; }
         target.value = name;
         if (target === nameEl) { try { localStorage.setItem('singer', name); } catch(e) {} }
         renderPlayers();
       };
       box.appendChild(c);
     });
+    var hint = $('phint');
+    hint.hidden = players.length === 0;
+    hint.textContent = typed && !list.length ? 'New singer? Just type your name.'
+      : list.length > SHOWN ? 'Tap a name to fill the box above · type to find more (' + players.length + ' players)'
+      : 'Tap a name to fill the box above';
   }
-  $('editPlayers').onclick = function(){ editing = !editing; renderPlayers(); };
   partnerEl.addEventListener('input', renderPlayers);
   nameEl.addEventListener('input', renderPlayers);
-
-  var pending = null;
-  function askRemove(name){
-    pending = name;
-    $('modalTitle').textContent = 'Remove ' + name + '?';
-    $('modalText').textContent = name + ' and all their scores (solo and duets) will be deleted from the hall of fame. This can\'t be undone.';
-    $('modal').classList.add('show');
-  }
-  function closeModal(){ pending = null; $('modal').classList.remove('show'); }
-  $('modalKeep').onclick = closeModal;
-  $('modal').onclick = function(e){ if (e.target === $('modal')) closeModal(); };
-  $('modalRemove').onclick = function(){
-    var name = pending; if (!name) return;
-    var b = $('modalRemove'); b.disabled = true;
-    api('/api/players/remove', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:'name=' + encodeURIComponent(name) })
-      .then(function(){
-        toast('🗑 ' + name + ' removed');
-        players = players.filter(function(p){ return p.toLowerCase() !== name.toLowerCase(); });
-        renderPlayers(); refresh();
-      })
-      .catch(function(e){ toast(e.message); })
-      .then(function(){ b.disabled = false; closeModal(); });
-  };
 
   function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function color(s){ var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return COLORS[Math.abs(h) % COLORS.length]; }
@@ -298,8 +275,9 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
   nameEl.addEventListener('input', function(){ if (topKey !== null) { justLed = false; renderTop(); } });
 
   function refresh(){
-    api('/api/state').then(function(s){
-      var list = Array.isArray(s.players) ? s.players.filter(function(p){ return typeof p === 'string'; }).slice(0, 60) : [];
+    return api('/api/state').then(function(s){
+      failures = 0;
+      var list = Array.isArray(s.players) ? s.players.filter(function(p){ return typeof p === 'string'; }).slice(0, 150) : [];
       var key = JSON.stringify(list);
       if (key !== playersKey) { playersKey = key; players = list; renderPlayers(); }
       recent = Array.isArray(s.recent) ? s.recent.filter(function(v){ return v && ID.test(v.id) && typeof v.title === 'string'; }).slice(0, 10) : [];
@@ -323,10 +301,20 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
         var t = el('div','t'); t.appendChild(el('b',null,it.singer)); t.appendChild(el('small',null,it.title));
         row.appendChild(n); row.appendChild(t); q.appendChild(row);
       });
-    }).catch(function(){});
+    }).catch(function(){ failures = Math.min(failures + 1, 3); });
   }
-  refresh();
-  setInterval(function(){ if (!document.hidden) refresh(); }, 4000);
+  // Updates every ~4 s while the page is open (a little random, so a room full of phones doesn't
+  // ask at the same instant), slower after errors, none while the phone is locked or in another app.
+  var failures = 0, timer = null;
+  function schedule(){
+    clearTimeout(timer);
+    timer = setTimeout(function(){
+      if (document.hidden) return;                    // picked up again by 'visibilitychange'
+      refresh().then(schedule);
+    }, Math.min(4000 * Math.pow(2, failures), 30000) + Math.random() * 800);
+  }
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) refresh().then(schedule); });
+  refresh().then(schedule);
 })();
 </script>
 </body>

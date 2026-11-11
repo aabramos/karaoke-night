@@ -58,7 +58,7 @@
             android:shadowRadius="40"
             android:text="--"
             android:textColor="@color/gold"
-            android:textSize="132sp" />
+            android:textSize="124sp" />
 
         <TextView
             android:id="@+id/scStars"
@@ -95,6 +95,8 @@
         <!-- Achievements: debut, personal best, hat-trick… (gone when there are none) -->
         <TextView
             android:id="@+id/scBadge"
+            android:maxLines="3"
+            android:ellipsize="end"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"

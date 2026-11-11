@@ -30,10 +30,10 @@ class SongSearch(context: Context) {
     private val app = context.applicationContext
     private val apiKey = BuildConfig.YOUTUBE_API_KEY
     private val certSha1: String? by lazy { signingCertSha1() }
-    // "search3": results saved by earlier versions were often nearly empty, so they're dropped
-    private val cacheDir = File(app.cacheDir, "search3").apply {
+    // "search4": compact rows (3.12); folders from earlier versions are deleted
+    private val cacheDir = File(app.cacheDir, "search4").apply {
         mkdirs()
-        runCatching { listOf("search", "search2").forEach { File(app.cacheDir, it).deleteRecursively() } }
+        runCatching { listOf("search", "search2", "search3").forEach { File(app.cacheDir, it).deleteRecursively() } }
     }
     @Volatile private var officialBlockedUntil = 0L
 
@@ -44,8 +44,6 @@ class SongSearch(context: Context) {
     private val known = object : LinkedHashMap<String, Song>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Song>) = size > 600
     }
-
-    val usesOfficialApi: Boolean get() = apiKey.isNotBlank()
 
     /** Results are ranked for this country, in its language. International = the TV's own setting. */
     @Volatile var country: Country = Countries.INTERNATIONAL
@@ -112,7 +110,13 @@ class SongSearch(context: Context) {
             playPrefs.getString("ids", "")!!.split(',').filter(::isVideoId).forEach { badIds += it }
             val o = JSONObject(playPrefs.getString("strikes", "{}")!!)
             o.keys().forEach { strikes[it] = o.optInt(it) }
+            // Older versions kept up to 3000: trim to today's limit once
+            if (badIds.size > MAX_BAD_IDS) {
+                badIds.toList().take(badIds.size - MAX_BAD_IDS).forEach { badIds.remove(it) }
+                playPrefs.edit().putString("ids", badIds.joinToString(",")).apply()
+            }
         }
+        runCatching { app.deleteSharedPreferences("playable") }   // the first version's list, replaced by "playable2"
     }
 
     private fun channelKey(c: String) = c.lowercase(Locale.ROOT).trim()
@@ -130,11 +134,11 @@ class SongSearch(context: Context) {
         synchronized(badIds) {
             badIds.remove(s.id)
             badIds.add(s.id)
-            while (badIds.size > 3000) badIds.remove(badIds.first())
+            while (badIds.size > MAX_BAD_IDS) badIds.remove(badIds.first())
             val ch = channelKey(s.channel)
             if (strikeChannel && ch.isNotEmpty()) strikes[ch] = (strikes[ch] ?: 0) + 1
             val o = JSONObject()
-            strikes.entries.sortedByDescending { it.value }.take(200).forEach { o.put(it.key, it.value) }
+            strikes.entries.sortedByDescending { it.value }.take(MAX_STRIKE_CHANNELS).forEach { o.put(it.key, it.value) }
             playPrefs.edit().putString("ids", badIds.joinToString(",")).putString("strikes", o.toString()).apply()
         }
         synchronized(known) { known.remove(s.id) }
@@ -451,24 +455,31 @@ class SongSearch(context: Context) {
         return File(cacheDir, h)
     }
 
+    /** Saved results: one short row per song, [ID, title, channel, duration, views]. */
     private fun readDiskCache(key: String): List<Song>? = runCatching {
         val f = cacheFile(key)
-        if (!f.exists() || System.currentTimeMillis() - f.lastModified() > 24 * 3600_000L) return null
+        if (!f.exists() || System.currentTimeMillis() - f.lastModified() > DISK_CACHE_MS) return null
         val arr = JSONArray(f.readText())
-        (0 until arr.length()).map {
-            val o = arr.getJSONObject(it)
-            Song(o.getString("i"), o.getString("t"), o.getString("c"), o.optString("d"), o.optLong("v"))
+        (0 until arr.length()).mapNotNull {
+            val r = arr.optJSONArray(it) ?: return@mapNotNull null
+            Song(r.getString(0), r.getString(1), r.getString(2), r.optString(3), r.optLong(4))
         }
     }.getOrNull()
 
     private fun writeDiskCache(key: String, list: List<Song>) {
         runCatching {
             val arr = JSONArray()
-            list.forEach { arr.put(JSONObject().put("i", it.id).put("t", it.title).put("c", it.channel).put("d", it.duration).put("v", it.views)) }
+            list.forEach {
+                arr.put(JSONArray().put(it.id).put(it.title.take(120)).put(it.channel.take(60)).put(it.duration)
+                    .apply { if (it.views > 0) put(it.views) })
+            }
             cacheFile(key).writeText(arr.toString())
-            // keep the cache folder small
+            // Keep the folder small: drop anything expired, then the oldest beyond the limit
             val files = cacheDir.listFiles() ?: return@runCatching
-            if (files.size > 60) files.sortedBy { it.lastModified() }.take(files.size - 60).forEach { it.delete() }
+            val now = System.currentTimeMillis()
+            val (old, fresh) = files.partition { now - it.lastModified() > DISK_CACHE_MS }
+            old.forEach { it.delete() }
+            if (fresh.size > DISK_CACHE_FILES) fresh.sortedBy { it.lastModified() }.take(fresh.size - DISK_CACHE_FILES).forEach { it.delete() }
         }
     }
 
@@ -486,6 +497,11 @@ class SongSearch(context: Context) {
 
     companion object {
         private const val WEB_CLIENT_VERSION = "2.20251020.01.00"
+        /** Small on purpose: saved searches expire after a day, and refused videos are re-checked anyway. */
+        private const val DISK_CACHE_MS = 24 * 3600_000L
+        private const val DISK_CACHE_FILES = 40
+        private const val MAX_BAD_IDS = 800
+        private const val MAX_STRIKE_CHANNELS = 100
 
         private val KARAOKE_WORDS = listOf(
             "karaoke", "karaokê", "karaoké", "sing along", "sing-along", "instrumental with lyrics", "videoke",

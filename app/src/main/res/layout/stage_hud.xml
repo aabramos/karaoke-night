@@ -139,7 +139,6 @@
             android:textSize="18sp" />
         <!-- Drag to set the music volume (the singers' microphones aren't affected) -->
         <LinearLayout
-            android:id="@+id/tbVolumeBox"
             android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:layout_marginStart="6dp"

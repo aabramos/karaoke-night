@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Buttons made in code that need an ID (to keep the remote's focus on them) -->
+    <item name="pickerPrev" type="id" />
+    <item name="pickerNext" type="id" />
+</resources>

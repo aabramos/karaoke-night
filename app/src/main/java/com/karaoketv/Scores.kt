@@ -2,7 +2,6 @@ package com.karaoketv
 
 import android.content.Context
 import org.json.JSONArray
-import org.json.JSONObject
 import java.util.Random
 import kotlin.math.roundToInt
 
@@ -50,24 +49,21 @@ object Judge {
 }
 
 /**
- * Little achievements shown under the rank: debut, personal best, hat-trick, comebacks…
- * [before] is the leaderboard *before* this entry was added. At most [limit] are returned,
- * the most special first.
+ * The moment's highlights shown under the rank: debut, personal best, hat-trick, comebacks…
+ * [tonightBefore]: tonight's scores before this one. [songsBefore] and [bestBefore] (best solo
+ * score, null if none) come from the singer's achievement record, which never forgets them.
+ * At most [limit] are returned, the most special first.
  */
 object Badges {
-    fun earned(entry: Entry, before: List<Entry>, hour: Int, limit: Int = 2): List<String> {
-        val since = entry.time - 12L * 3600_000
-        val mine = before.filter { it.duet == entry.duet && it.name.equals(entry.name, ignoreCase = true) }
-        val tonight = mine.filter { it.time >= since }.sortedBy { it.time }
+    fun earned(entry: Entry, tonightBefore: List<Entry>, songsBefore: Int, bestBefore: Int?, hour: Int, limit: Int = 2): List<String> {
+        val tonight = tonightBefore.filter { it.duet == entry.duet && it.name.equals(entry.name, ignoreCase = true) }.sortedBy { it.time }
         val out = ArrayList<String>()
         if (entry.score >= 100) out += "💯 PERFECT SCORE"
-        if (mine.isEmpty()) {
-            out += if (entry.duet) "👫 First duet together!" else "🌟 Debut performance!"
-        } else {
-            val best = mine.maxOf { it.score }
-            when {
-                entry.score > best -> out += "📈 New personal best! (was $best)"
-                entry.score == best -> out += "🎯 Matched your best ever"
+        if (!entry.duet) {
+            if (songsBefore == 0) out += "🎤 Debut performance!"
+            else if (bestBefore != null) when {
+                entry.score > bestBefore -> out += "📈 New personal best! (was $bestBefore)"
+                entry.score == bestBefore -> out += "🎯 Matched your best ever"
             }
         }
         val last = tonight.lastOrNull()
@@ -85,19 +81,36 @@ object Badges {
 /** [duet]: sung by two people ("Ana & Rui"); duets have their own ranking. */
 data class Entry(val name: String, val score: Int, val song: String, val time: Long, val duet: Boolean = false)
 
-/** Scores saved on the Shield. "Tonight" = the last 12 hours. Loaded once and kept small. */
+/**
+ * Scores saved on the device, kept small: the all-time best [KEEP_SOLO] solo and [KEEP_DUETS] duet
+ * scores (the hall of fame shows the top 8) plus everything from tonight, which tonight's board,
+ * ranks and achievements need. Each score is one short row: ["Ana",91,1731360000,"Song title"]
+ * (time in seconds; a 5th value 1 marks a duet). Loaded once, then kept in memory.
+ */
 class Leaderboard(context: Context) {
     private val prefs = context.getSharedPreferences("leaderboard", Context.MODE_PRIVATE)
-    private var cached: MutableList<Entry>? = null
+    private var cached: List<Entry>? = null
 
     @Synchronized
     fun all(): List<Entry> {
         cached?.let { return it }
-        val arr = runCatching { JSONArray(prefs.getString("entries", "[]")) }.getOrElse { JSONArray() }
-        val list = ArrayList<Entry>(arr.length())
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            list += Entry(o.optString("n"), o.optInt("s"), o.optString("song"), o.optLong("t"), o.optBoolean("d"))
+        val list = ArrayList<Entry>()
+        val rows = prefs.getString("e", null)
+        if (rows != null) {
+            val arr = runCatching { JSONArray(rows) }.getOrElse { JSONArray() }
+            for (i in 0 until arr.length()) {
+                val r = arr.optJSONArray(i) ?: continue
+                val name = r.optString(0)
+                if (name.isEmpty()) continue
+                list += Entry(name, r.optInt(1), r.optString(3), r.optLong(2) * 1000, r.optInt(4) == 1)
+            }
+        } else {
+            // Versions before 3.12 saved one object per score, with field names and milliseconds
+            val arr = runCatching { JSONArray(prefs.getString("entries", "[]")) }.getOrElse { JSONArray() }
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                list += Entry(o.optString("n"), o.optInt("s"), o.optString("song"), o.optLong("t"), o.optBoolean("d"))
+            }
         }
         cached = list
         return list
@@ -105,8 +118,14 @@ class Leaderboard(context: Context) {
 
     /** Tonight's solo or duet scores. */
     fun tonight(duet: Boolean = false): List<Entry> {
-        val since = System.currentTimeMillis() - 12L * 3600_000
+        val since = System.currentTimeMillis() - TONIGHT_MS
         return all().filter { it.time >= since && it.duet == duet }
+    }
+
+    /** Everything from tonight, solo and duets (for achievements and highlights). */
+    fun tonightAll(): List<Entry> {
+        val since = System.currentTimeMillis() - TONIGHT_MS
+        return all().filter { it.time >= since }
     }
 
     fun allTime(duet: Boolean = false): List<Entry> = all().filter { it.duet == duet }
@@ -118,19 +137,13 @@ class Leaderboard(context: Context) {
     fun tonightBest(n: Int, duet: Boolean = false): List<Entry> =
         top(tonight(duet), Int.MAX_VALUE).distinctBy { it.name.lowercase() }.take(n)
 
-    /** The best [n] singers: each one once, with their best score (earliest wins a tie). */
-    fun topPlayers(entries: List<Entry>, n: Int = 3) =
-        top(entries, Int.MAX_VALUE).distinctBy { it.name.lowercase() }.take(n)
-
     /** Saves the entry and returns its 1-based rank among tonight's scores of the same kind (solo/duet). */
     @Synchronized
     fun add(entry: Entry): Int {
-        // Keep the best 150 solo and 100 duet scores of all time, plus everything from tonight,
-        // so tonight's boards and the rank below are always complete
-        val since = System.currentTimeMillis() - 12L * 3600_000
-        fun keep(duet: Boolean, n: Int) = (all() + entry).filter { it.duet == duet }.sortedByDescending { it.score }
-            .filterIndexed { i, e -> i < n || e.time >= since }.take(300)
-        saveEntries(keep(false, 150) + keep(true, 100))
+        val since = System.currentTimeMillis() - TONIGHT_MS
+        fun keep(duet: Boolean, n: Int) = top((all() + entry).filter { it.duet == duet }, Int.MAX_VALUE)
+            .filterIndexed { i, e -> i < n || e.time >= since }.take(MAX_TONIGHT)
+        saveEntries(keep(false, KEEP_SOLO) + keep(true, KEEP_DUETS))
         return (top(tonight(entry.duet), Int.MAX_VALUE).indexOfFirst { it === entry } + 1).coerceAtLeast(1)
     }
 
@@ -181,20 +194,23 @@ class Leaderboard(context: Context) {
     }
 
     private fun saveEntries(list: List<Entry>) {
-        cached = list.toMutableList()
+        cached = list.toList()
         val arr = JSONArray()
         list.forEach {
-            arr.put(JSONObject().put("n", it.name).put("s", it.score).put("song", it.song.take(100)).put("t", it.time)
-                .apply { if (it.duet) put("d", true) })
+            arr.put(JSONArray().put(it.name).put(it.score).put(it.time / 1000).put(it.song.take(SONG_CHARS))
+                .apply { if (it.duet) put(1) })
         }
-        prefs.edit().putString("entries", arr.toString()).apply()
+        prefs.edit().putString("e", arr.toString()).remove("entries").apply()
     }
 
-    /** People to offer first when picking a singer. */
-    fun recentNames(limit: Int = 8): List<String> = players().take(limit)
-
     companion object {
-        const val MAX_PLAYERS = 60
+        const val MAX_PLAYERS = 150
+        const val KEEP_SOLO = 40
+        const val KEEP_DUETS = 20
+        /** A night can't hold more songs than this (about 4 minutes each, all night long). */
+        const val MAX_TONIGHT = 250
+        const val SONG_CHARS = 60
+        const val TONIGHT_MS = 12L * 3600_000
     }
 }
 
@@ -204,7 +220,10 @@ const val DUET_JOIN = " & "
 /** A song that was sung, for "🕘 Played". */
 data class Played(val song: Song, val singer: String, val time: Long)
 
-/** The last [MAX] different songs that were sung, most recent first. Survives restarts. */
+/**
+ * The last [MAX] different songs that were sung, most recent first. Survives restarts.
+ * Saved as short rows: [video ID, title, channel, duration, singer, time in seconds].
+ */
 class History(context: Context) {
     private val prefs = context.getSharedPreferences("history", Context.MODE_PRIVATE)
     @Volatile private var cached: List<Played>? = null
@@ -212,12 +231,15 @@ class History(context: Context) {
     @Synchronized
     fun all(): List<Played> {
         cached?.let { return it }
-        val arr = runCatching { JSONArray(prefs.getString("played", "[]")) }.getOrElse { JSONArray() }
+        val arr = runCatching { JSONArray(prefs.getString("p", null) ?: prefs.getString("played", "[]")) }.getOrElse { JSONArray() }
         val list = (0 until arr.length()).mapNotNull { i ->
-            val o = arr.optJSONObject(i) ?: return@mapNotNull null
-            val id = o.optString("i")
+            val r = arr.optJSONArray(i)
+            val o = if (r == null) arr.optJSONObject(i) ?: return@mapNotNull null else null   // 3.10-3.11: objects
+            val id = r?.optString(0) ?: o!!.optString("i")
             if (!isVideoId(id)) return@mapNotNull null
-            Played(Song(id, o.optString("t").take(150), o.optString("c").take(80), o.optString("d").take(10), o.optLong("v")),
+            if (r != null) Played(Song(id, r.optString(1).take(150), r.optString(2).take(80), r.optString(3).take(10)),
+                r.optString(4).take(45), r.optLong(5) * 1000)
+            else Played(Song(id, o!!.optString("t").take(150), o.optString("c").take(80), o.optString("d").take(10)),
                 o.optString("s").take(45), o.optLong("w"))
         }
         cached = list
@@ -227,13 +249,25 @@ class History(context: Context) {
     @Synchronized
     fun add(song: Song, singer: String) {
         val list = (listOf(Played(song, singer, System.currentTimeMillis())) + all().filter { it.song.id != song.id }).take(MAX)
+        save(list)
+    }
+
+    /** Forgets a removed player's name on their songs (the songs stay, to sing again). */
+    @Synchronized
+    fun forgetSinger(name: String) {
+        val people = { singer: String -> singer.split(DUET_JOIN) }
+        if (all().none { p -> people(p.singer).any { it.equals(name, ignoreCase = true) } }) return
+        save(all().map { p -> if (people(p.singer).any { it.equals(name, ignoreCase = true) }) p.copy(singer = "") else p })
+    }
+
+    private fun save(list: List<Played>) {
         cached = list
         val arr = JSONArray()
         list.forEach {
-            arr.put(JSONObject().put("i", it.song.id).put("t", it.song.title).put("c", it.song.channel)
-                .put("d", it.song.duration).put("v", it.song.views).put("s", it.singer).put("w", it.time))
+            arr.put(JSONArray().put(it.song.id).put(it.song.title.take(100)).put(it.song.channel.take(40))
+                .put(it.song.duration).put(it.singer).put(it.time / 1000))
         }
-        prefs.edit().putString("played", arr.toString()).apply()
+        prefs.edit().putString("p", arr.toString()).remove("played").apply()
     }
 
     companion object {
@@ -244,7 +278,7 @@ class History(context: Context) {
             val age = System.currentTimeMillis() - p.time
             val fmt = if (age < 20L * 3600_000) "HH:mm" else "EEE d MMM"
             val whenText = java.text.SimpleDateFormat(fmt, java.util.Locale.ENGLISH).format(java.util.Date(p.time))
-            return "🎤 ${p.singer}  ·  $whenText"
+            return if (p.singer.isEmpty()) "🕘 $whenText" else "🎤 ${p.singer}  ·  $whenText"
         }
     }
 }

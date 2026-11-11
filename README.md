@@ -14,12 +14,18 @@ A karaoke app for the big screen, built for parties:
   your mics: the 🎵 button in the lobby, ◀ ▶ during a song, or a slider on phones
 - **Lobby music** always plays very quietly in the background (it can be switched off, not turned up)
 - **Duets**: pick two singers for one song (on the TV or a phone); duets have their own ranking
-- **Players list**: everyone who has sung is one tap away on the TV and on guests' phones; a player can be
-  removed (with a confirmation), which also removes their scores from the hall of fame
+- **Players list**: everyone who has sung is one tap away on the TV and on guests' phones (typing a few
+  letters finds anyone, even with dozens of players). Only the TV can remove a player (with a confirmation),
+  which also removes their scores and achievements
 - **The judge**: drumroll, count-up, stars, a verdict, applause, and confetti + fanfare for 95+, plus
-  achievements: debut, new personal best, hat-trick, comeback, on fire, night owl…
+  highlights like a new personal best
+- **Achievements**: 17 to collect and keep (Rising star, 90 club, Champion, Hat-trick, Dream team, Night
+  owl, Legend…). New ones pop up on the score screen; the hall of fame's **🏅 Achievements** tab shows every
+  singer's collection, and OK on a singer shows all 17: when each was won, and how to get the rest.
+  Scores from before this version count too
+- **Opening animation** when the app starts (any button or a tap skips it)
 - **🕘 Played**: the last 10 songs sung, first in the quick picks on the TV and on phones, to sing one again
-- **Hall of fame**: podium and top 8 for tonight, all time and duets. Scores are saved automatically under each singer's name
+- **Hall of fame**: podium and top 8 for tonight, all time and duets, plus achievements. Scores are saved automatically under each singer's name
 - **About** (ℹ️ in the lobby): version number, author and a link (and QR code) to the project page
 - **Works without a YouTube API key** (optional key for extra reliability, see below)
 - **Never stalls on a blocked video**: if a video's owner blocks playback outside YouTube, the app
@@ -59,11 +65,11 @@ That's it. The queue is saved, so if someone exits the app by accident, everythi
 | Lobby | 🎙 button (or the remote's search button) | Voice search: say a song or artist |
 | Lobby | QR card → OK | Big join code for guests' phones |
 | Lobby | 🌍 / flag button | Party country: every country, type a few letters to find one |
-| Lobby | 🏆 button | Hall of fame: tonight, all time, duets |
+| Lobby | 🏆 button | Hall of fame: tonight, all time, duets, 🏅 achievements (OK on a singer: all their achievements) |
 | Lobby | 🎵 button | Volume for songs and sound effects (◀ ▶), lobby music on/off |
 | Lobby | 🕘 Played chip | The last 10 songs sung, to sing one again |
 | Lobby | ℹ️ button | About: version, author, project page |
-| Who's singing? | 👫 Duet / 🎲 / 🗑 | Two singers / surprise name / remove a player (asks first). BACK steps back |
+| Who's singing? | 👫 Duet / 🎲 / 🗑 / ‹ › | Two singers / surprise name / remove a player (asks first) / more names. Typing filters the names. BACK steps back |
 | Lobby | BACK twice | Exit the app |
 | Next up | OK | Start now |
 | Next up | ▶ | "Not ready": move this singer to the end of the queue |
@@ -84,7 +90,7 @@ The phone's Back gesture does what BACK does on the remote.
 
 The TV runs a tiny web page for the party. Guests scan the QR code, tap their name in the players list (or
 type it once), search (or tap **🕘 Played** for the songs sung so far), and tap **+**. For a duet, fill in **Duet partner** too (tap a name while that box
-is selected). **Edit** under the players list removes a player, after a confirmation.
+is selected; typing filters the names). Phones can't remove players: only the TV can.
 Their phones also show who's singing, the queue and **tonight's top 3** (each singer's best score, plus
 the best duet), updated live. Their own spot is highlighted, and a message pops up when someone takes the lead.
 
@@ -95,8 +101,10 @@ the best duet), updated live. Their own spot is highlighted, and a message pops 
   between parties, so phones that already joined keep working). Phones can only add songs that came out
   of the karaoke search. There are limits on request size and time, on how many songs or searches one
   phone can make per minute, and at most 3 queued songs per singer.
-- Anyone who joined the party can remove a player (with a confirmation, at most 6 a minute per phone).
-  That's convenient between friends; if it ever gets abused, the 12-hour key change locks old guests out.
+- Big parties: dozens of phones can be connected at once. Each phone asks for updates every few seconds
+  (at slightly different moments, less often if the TV doesn't answer, never while the phone is locked),
+  the TV answers them all from one copy refreshed every second, and at most 3 searches run at once
+  ("Lots of people are searching. Try again in a few seconds" otherwise), so updates never wait.
 
 ## Searching: with or without a YouTube API key
 
@@ -191,6 +199,11 @@ It appears in the Shield's app row as **Karaoke Night**.
   as one continuous stream, so the loop point has no gap or click; effects are tiny.
 - No heavy libraries: no RecyclerView, image or QR libraries. The QR code generator and the phone server
   are built in. Release builds are shrunk with R8.
+- Small files on the device, however long it's used: every saved list has a cap and is stored as short
+  rows without repeated field names (scores keep the all-time top 40 solo and top 20 duets plus tonight;
+  achievements and players up to 150 singers; the last 10 songs; searches expire after a day, 40 at most).
+  A typical party leaves well under 20 KB of scores, players, history and achievements together.
+  Data saved by older versions is converted automatically the first time.
 - Pure Java/Kotlin with no native code, so it runs on the Shield's 32-bit (armeabi-v7a) and 64-bit setups alike.
 - Leak-proofing: background work (searches, thumbnails, the phone server) only keeps weak links to the screen,
   every timer, animation, sound and player is released when the app closes, and the YouTube player is
@@ -206,7 +219,8 @@ It appears in the Shield's app row as **Karaoke Night**.
 | Quick picks | `Countries.kt`: `INTERNATIONAL_PICKS`, and `HAND` for a country's own picks (phones get the same ones) |
 | How generous the judge is | `Scores.kt`: `83 + 8 * rng.nextGaussian()`: raise 83 for higher scores, raise 8 for more spread |
 | Judge comments | `Scores.kt` → `lines` |
-| Achievements | `Scores.kt` → `Badges` |
+| Score-screen highlights | `Scores.kt` → `Badges` |
+| Achievements (add, change, remove) | `Achievements.kt` → `Achievements.ALL` and `earnedBy` |
 | How many songs "🕘 Played" keeps | `Scores.kt` → `History.MAX` (10) |
 | Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops from end to start without a gap); its fixed level is `Audio.kt` → `LobbyMusic.LEVEL` |
 | Autostart delay | `MainActivity.kt` → `AUTOSTART_MS` (30 s) |

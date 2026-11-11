@@ -42,7 +42,7 @@ object CrashReport {
         }.getOrNull() ?: "?"
         file(c).writeText(
             "Karaoke Night $info · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · ${Build.MODEL}\n\n" +
-                trace.take(12_000)
+                trace.take(8_000)
         )
     }
 
