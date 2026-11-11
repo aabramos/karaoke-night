@@ -60,13 +60,13 @@ jobs:
           ./gradlew --no-daemon assembleRelease
           cp app/build/outputs/apk/release/app-release.apk KaraokeNight.apk
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: KaraokeNight-apk
           path: KaraokeNight.apk
 
       - name: Publish a release with the APK
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: build-${{ github.run_number }}
           name: Karaoke Night build ${{ github.run_number }}
