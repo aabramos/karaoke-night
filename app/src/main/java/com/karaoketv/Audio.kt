@@ -14,10 +14,10 @@ import android.media.SoundPool
 class LobbyMusic(context: Context) {
     companion object {
         /**
-         * Fixed, very quiet background level (about -23 dB): enough to fill the silence between
+         * Fixed, very quiet background level (about -28 dB): enough to fill the silence between
          * songs, never loud enough to annoy anyone. Deliberately not adjustable from the app.
          */
-        const val LEVEL = 0.07f
+        const val LEVEL = 0.04f
     }
 
     private val context = context.applicationContext   // never hold on to the screen
@@ -310,7 +310,7 @@ class SeamlessLoop(context: Context, private val resId: Int, private val onFailu
 class Sfx(screen: Context) {
     private val context = screen.applicationContext
     private val pool = SoundPool.Builder()
-        .setMaxStreams(4)
+        .setMaxStreams(6)
         .setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME)
@@ -336,15 +336,26 @@ class Sfx(screen: Context) {
         pool.setOnLoadCompleteListener { p, id, status ->
             if (status == 0) {
                 loaded += id
-                pending.remove(id)?.let { vol -> streams[id] = p.play(id, vol, vol, 1, 0, 1f) }
+                pending.remove(id)?.let { vol -> streams[id] = p.play(id, vol, vol, priority(id), 0, 1f) }
             }
         }
     }
 
+    /**
+     * When too many sounds overlap, Android stops the lowest-priority one: the long applause,
+     * fanfare and drumroll must never be cut off by a burst of short ticks and pops.
+     */
+    private fun priority(sound: Int) = when (sound) {
+        applause, fanfare, drumroll -> 2
+        reveal -> 1
+        else -> 0
+    }
+
     fun play(sound: Int, level: Float = 1f) {
         val volume = (level * master).coerceIn(0f, 1f)
+        if (volume <= 0f) return                    // muted: don't use up a stream
         if (sound in loaded) {
-            streams[sound] = pool.play(sound, volume, volume, 1, 0, 1f)
+            streams[sound] = pool.play(sound, volume, volume, priority(sound), 0, 1f)
         } else {
             pending[sound] = volume
         }

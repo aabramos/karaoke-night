@@ -118,8 +118,14 @@
         layout="@layout/volume"
         android:visibility="gone" />
 
+    <include
+        android:id="@+id/aboutLayer"
+        layout="@layout/about"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/toast"
+        android:accessibilityLiveRegion="polite"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"

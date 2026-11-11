@@ -64,6 +64,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private lateinit var queue: PartyQueue
     private lateinit var search: SongSearch
     private lateinit var board: Leaderboard
+    private lateinit var history: History
     private lateinit var music: LobbyMusic
     private lateinit var sfx: Sfx
 
@@ -76,6 +77,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private lateinit var intermission: View
     private lateinit var scoreLayer: View
     private lateinit var boardLayer: View
+    private lateinit var aboutLayer: View
     private lateinit var pickerLayer: View
     private lateinit var sheetLayer: View
     private lateinit var qrLayer: View
@@ -156,6 +158,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             it.country = runCatching { Countries.byCode(prefs.getString("country", "")) }.getOrDefault(Countries.INTERNATIONAL)
         }
         board = Leaderboard(this)
+        history = History(this)
         music = LobbyMusic(this)
         sfx = Sfx(this).also { it.master = volume / 100f }
 
@@ -167,6 +170,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         intermission = findViewById(R.id.intermission)
         scoreLayer = findViewById(R.id.scoreLayer)
         boardLayer = findViewById(R.id.boardLayer)
+        aboutLayer = findViewById(R.id.aboutLayer)
         pickerLayer = findViewById(R.id.pickerLayer)
         sheetLayer = findViewById(R.id.sheetLayer)
         qrLayer = findViewById(R.id.qrLayer)
@@ -182,6 +186,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             findViewById(R.id.lobbySearch), findViewById(R.id.lobbyChips), findViewById(R.id.lobbyStatus),
             findViewById(R.id.lobbyScroll), findViewById(R.id.lobbyResults), columns = 3,
         ) { openPicker(it) }
+        lobbyBrowser.played = { history.all() }
         lobbyBrowser.onResults = { found ->
             if (firstLobbyLoad && found && mode == Mode.LOBBY && !anyOverlayOpen()) lobbyBrowser.focusFirst()
             firstLobbyLoad = false
@@ -192,8 +197,13 @@ class MainActivity : Activity(), PartyBackend.Listener {
             findViewById(R.id.panelSearch), findViewById(R.id.panelChips), findViewById(R.id.panelStatus),
             findViewById(R.id.panelScroll), findViewById(R.id.panelResults), columns = 1,
         ) { openPicker(it) }
+        panelBrowser.played = { history.all() }
 
         click(R.id.btnBoard) { showBoard() }
+        click(R.id.boardClose) { hideBoard() }
+        click(R.id.btnAbout) { showAbout() }
+        click(R.id.aboutClose) { hideAbout() }
+        click(R.id.aboutOpen) { openProjectPage() }
         click(R.id.btnVoice) { voiceSearch() }
         click(R.id.btnCountry) { showCountries() }
         findViewById<EditText>(R.id.countryFilter).apply {
@@ -385,6 +395,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         if (qrLayer.isShown) { if (back) { if (first) hideBigQr(); return true }; return super.dispatchKeyEvent(e) }
         if (countryLayer.isShown) { if (back) { if (first) hideCountries(); return true }; return super.dispatchKeyEvent(e) }
         if (volumeLayer.isShown) { if (back) { if (first) hideVolumePanel(); return true }; return super.dispatchKeyEvent(e) }
+        if (aboutLayer.isShown) { if (back) { if (first) hideAbout(); return true }; return super.dispatchKeyEvent(e) }
 
         when (mode) {
             Mode.LOBBY -> {
@@ -982,8 +993,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun changeVolume(delta: Int) = setVolumeTo(volume + delta)
 
     /**
-     * The party's one volume, 0-100: songs, lobby music, countdown and score sounds all follow it.
-     * Separate from the TV's own volume (and from the microphones, which never pass through here).
+     * The party's one volume, 0-100: songs, countdown and score sounds follow it (the lobby music
+     * has its own fixed, very low level). Separate from the TV's own volume and the microphones.
      */
     private fun setVolumeTo(value: Int, save: Boolean = true) {
         volume = value.coerceIn(0, 100)
@@ -1066,8 +1077,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
     // =====================================================================================
 
     private fun showScore(fraction: Double) {
+        if (mode == Mode.SCORE) return            // already showing (end of video and a tap at once)
         ui.removeCallbacks(finaleDone)
         val item = queue.current ?: return goLobby()
+        history.add(item.song, item.singer)   // for "🕘 Played", even when stopped early
         val score = Judge.score(fraction) ?: return afterSong()
         mode = Mode.SCORE
         scoreDone = false
@@ -1083,9 +1096,11 @@ class MainActivity : Activity(), PartyBackend.Listener {
         findViewById<TextView>(R.id.scSong).text = item.song.title
         val scoreView = findViewById<TextView>(R.id.scScore)
         scoreView.text = "--"
-        listOf(R.id.scStars, R.id.scVerdict, R.id.scRank, R.id.scNext).forEach {
+        listOf(R.id.scStars, R.id.scVerdict, R.id.scRank, R.id.scNext, R.id.scJudges).forEach {
             findViewById<View>(it).visibility = View.INVISIBLE
         }
+        findViewById<View>(R.id.scBadge).visibility = View.GONE
+        findViewById<LinearLayout>(R.id.scJudges).let { it.removeViews(1, it.childCount - 1) }   // keeps the title
         scoreLayer.visibility = View.VISIBLE
         popIn(scoreLayer)
 
@@ -1142,10 +1157,33 @@ class MainActivity : Activity(), PartyBackend.Listener {
         scoreView.animate().scaleX(1f).scaleY(1f).setInterpolator(OvershootInterpolator(3f)).setDuration(450).start()
 
         val stars = Judge.stars(score)
-        findViewById<TextView>(R.id.scStars).text = "★".repeat(stars) + "☆".repeat(5 - stars)
+        val starsView = findViewById<TextView>(R.id.scStars)
+        starsView.text = "☆☆☆☆☆"
+        for (n in 1..stars) ui.postDelayed({
+            if (mode == Mode.SCORE) { starsView.text = "★".repeat(n) + "☆".repeat(5 - n); sfx.play(sfx.pop, 0.5f) }
+        }, 350L + n * 160L)
         findViewById<TextView>(R.id.scVerdict).text = Judge.verdict(score)
 
-        val rank = board.add(Entry(item.singer, score, item.song.title, System.currentTimeMillis(), duet = item.duet))
+        val entry = Entry(item.singer, score, item.song.title, System.currentTimeMillis(), duet = item.duet)
+        val badges = Badges.earned(entry, board.all().toList(), java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY))
+        val rank = board.add(entry)
+        findViewById<TextView>(R.id.scBadge).apply {
+            text = badges.joinToString("   ·   ")
+            if (badges.isNotEmpty()) {
+                visibility = View.VISIBLE
+                alpha = 0f; scaleX = 0.6f; scaleY = 0.6f
+                animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(900).setInterpolator(OvershootInterpolator(2.5f)).setDuration(420).start()
+            }
+        }
+        findViewById<ReactionsView>(R.id.scReactions).start(
+            when {
+                score >= 90 -> listOf("👏", "😍", "🔥", "🎉", "❤️", "🤩", "🙌", "⭐")
+                score >= 78 -> listOf("👏", "🎶", "👍", "❤️", "😊", "🙌")
+                else -> listOf("👏", "😅", "🙈", "😂", "👍")
+            },
+            rate = when { score >= 95 -> 9f; score >= 90 -> 6f; score >= 80 -> 4f; else -> 2.5f },
+        )
+        showJudges(score)
         val of = if (item.duet) "duet tonight" else "tonight"
         findViewById<TextView>(R.id.scRank).text = when (rank) {
             1 -> "👑 #1 $of!"
@@ -1181,7 +1219,56 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 animate().alpha(1f).setDuration(300).start()
             }
             ui.postDelayed(scoreAutoNext, 1000)
-        }, 1600)
+        }, 2700)
+    }
+
+    /** The three judges hold up their paddles one after another, on the right of the score. */
+    private fun showJudges(score: Int) {
+        val column = findViewById<LinearLayout>(R.id.scJudges)
+        column.visibility = View.VISIBLE
+        column.getChildAt(0).apply { alpha = 0f; animate().alpha(1f).setStartDelay(500).setDuration(300).start() }
+        Panel.judges(score).forEachIndexed { i, j ->
+            val card = judgeCard(j)
+            column.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = px(8) })
+            card.alpha = 0f
+            card.translationX = px(40).toFloat()
+            val delay = 800L + i * 500L
+            card.animate().alpha(1f).translationX(0f).setStartDelay(delay).setDuration(320).start()
+            ui.postDelayed({ if (mode == Mode.SCORE) sfx.play(sfx.pop, 0.8f) }, delay)
+            card.findViewWithTag<View>("paddle")?.apply {
+                scaleX = 0.2f; scaleY = 0.2f; rotation = -20f
+                animate().scaleX(1f).scaleY(1f).rotation(if (i % 2 == 0) -4f else 4f)
+                    .setStartDelay(delay + 120).setInterpolator(OvershootInterpolator(3f)).setDuration(400).start()
+            }
+        }
+    }
+
+    private fun judgeCard(j: JudgeCard): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setBackgroundResource(R.drawable.panel_bg)
+        setPadding(px(10), px(8), px(10), px(8))
+        addView(TextView(context).apply { text = j.face; textSize = 28f; gravity = Gravity.CENTER })
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(px(8), 0, px(6), 0)
+            addView(label(j.name, 11f, R.color.neon_cyan, bold = true).apply { letterSpacing = 0.12f })
+            addView(label(j.quip, 13f, R.color.text_main).apply { maxLines = 2 })
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        // The paddle: a white scorecard, like on TV talent shows
+        addView(TextView(context).apply {
+            tag = "paddle"
+            text = j.paddle
+            textSize = 22f
+            typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)
+            gravity = Gravity.CENTER
+            setTextColor(0xFF0B0614.toInt())
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (j.points >= 9.5) getColor(R.color.gold) else 0xFFFFFFFF.toInt())
+                cornerRadius = px(8).toFloat()
+            }
+        }, LinearLayout.LayoutParams(px(54), px(44)))
     }
 
     private val scoreAutoNext = object : Runnable {
@@ -1376,7 +1463,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val token = prefs.getString("party_key", null)?.takeIf { !stale }
             ?: newToken().also { prefs.edit().putString("party_key", it).putLong("party_key_time", now).apply() }
         val page = runCatching { assets.open("remote.html").use { it.readBytes() } }.getOrNull() ?: return
-        val s = PartyServer(PartyBackend(queue, search, board, this), token, page)
+        val s = PartyServer(PartyBackend(queue, search, board, history, this), token, page)
         server = s
         io.execute {
             val port = s.start()
@@ -1443,6 +1530,38 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun hideBigQr() {
         qrLayer.visibility = View.GONE
         restoreFocus()
+    }
+
+    // =====================================================================================
+    // About
+    // =====================================================================================
+
+    private fun showAbout() {
+        overlayReturnFocus = currentFocus
+        findViewById<TextView>(R.id.aboutVersion).text = "Version ${BuildConfig.VERSION_NAME}  ·  build ${BuildConfig.VERSION_CODE}"
+        findViewById<TextView>(R.id.aboutLink).text = PROJECT_URL.removePrefix("https://").trimEnd('/')
+        findViewById<QrView>(R.id.aboutQr).setText(PROJECT_URL)
+        aboutLayer.visibility = View.VISIBLE
+        lockFocus()
+        popIn(aboutLayer)
+        findViewById<View>(R.id.aboutClose).requestFocus()
+    }
+
+    private fun hideAbout() {
+        aboutLayer.visibility = View.GONE
+        restoreFocus()
+    }
+
+    /** Opens the project page in a browser; TVs often have none, so the QR code is the fallback. */
+    private fun openProjectPage() {
+        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(PROJECT_URL)).addCategory(Intent.CATEGORY_BROWSABLE)
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            toast("No web browser here. Scan the code with your phone 📱")
+        } catch (_: SecurityException) {
+            toast("No web browser here. Scan the code with your phone 📱")
+        }
     }
 
     // =====================================================================================
@@ -1623,7 +1742,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             override fun onReadyForSpeech(params: Bundle?) {
                 findViewById<View>(R.id.btnVoice).isSelected = true
                 box.setText("")
-                box.hint = "🎙 Listening… say a song or artist"
+                box.hint = "🎙 Listening… say a song"
             }
             override fun onPartialResults(partial: Bundle?) {
                 partial?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
@@ -1825,14 +1944,14 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     private fun hideAllOverlays() {
-        listOf(pickerLayer, sheetLayer, boardLayer, qrLayer, volumeLayer).forEach { it.visibility = View.GONE }
+        listOf(pickerLayer, sheetLayer, boardLayer, qrLayer, volumeLayer, aboutLayer).forEach { it.visibility = View.GONE }
         if (countryLayer.isShown) hideCountries()
         hideKeyboard()
         lockFocus()
     }
 
     private fun anyOverlayOpen() = pickerLayer.isShown || sheetLayer.isShown || boardLayer.isShown || qrLayer.isShown ||
-        countryLayer.isShown || volumeLayer.isShown
+        countryLayer.isShown || volumeLayer.isShown || aboutLayer.isShown
 
     /**
      * While a pop-up is open, nothing behind it can take the remote's focus: ▲ ▼ ◀ ▶ stay
@@ -1843,8 +1962,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val rule = if (block) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
         listOf(lobby, queuePanel, hud, intermission).forEach { (it as? ViewGroup)?.descendantFocusability = rule }
         // Pop-ups stacked on another (a sheet over the picker) only keep the top one reachable
-        val top = listOf(volumeLayer, sheetLayer, countryLayer, qrLayer, boardLayer, pickerLayer).firstOrNull { it.isShown }
-        listOf(pickerLayer, boardLayer, qrLayer, countryLayer, sheetLayer, volumeLayer).forEach {
+        val top = listOf(volumeLayer, aboutLayer, sheetLayer, countryLayer, qrLayer, boardLayer, pickerLayer).firstOrNull { it.isShown }
+        listOf(pickerLayer, boardLayer, qrLayer, countryLayer, sheetLayer, volumeLayer, aboutLayer).forEach {
             (it as? ViewGroup)?.descendantFocusability =
                 if (top == null || it === top) ViewGroup.FOCUS_AFTER_DESCENDANTS else ViewGroup.FOCUS_BLOCK_DESCENDANTS
         }
@@ -1910,6 +2029,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         const val FINALE_MS = 5000L
         /** The lobby music fades back in this long after the score lands. */
         const val SCORE_MUSIC_DELAY_MS = 5000L
+        const val PROJECT_URL = "https://github.com/aabramos/karaoke-night/"
         val STAGE_NAMES = listOf(
             "Disco Diva", "Rock Legend", "Mystery Voice", "Mic Master", "Golden Voice", "Pop Idol",
             "Shower Singer", "Night Owl", "Velvet Voice", "Funky Star", "Karaoke King", "Karaoke Queen",

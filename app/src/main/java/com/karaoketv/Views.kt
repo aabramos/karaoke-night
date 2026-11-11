@@ -1,6 +1,7 @@
 package com.karaoketv
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -271,4 +272,113 @@ object TvScale {
             fontScale = fontScale.coerceIn(0.9f, 1.1f)
         }
     }
+}
+
+/**
+ * Emoji reactions floating up the side of the score screen, like a live stream's audience.
+ * Each emoji is drawn once into a small bitmap, so a frame is just a few bitmap draws.
+ * Stops and frees everything by itself when the score screen is hidden.
+ */
+class ReactionsView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
+
+    private class Bubble(
+        var x: Float, var y: Float, val vy: Float, val sway: Float, val phase: Float,
+        val size: Float, val bmp: Bitmap, var age: Float, val life: Float
+    )
+
+    private val bubbles = ArrayList<Bubble>()
+    private val cache = HashMap<String, Bitmap>()
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val box = RectF()
+    private var emojis: List<String> = emptyList()
+    private var perSecond = 0f
+    private var owed = 0f
+    private var lastFrame = 0L
+    private var running = false
+
+    /** Starts a stream of [emojis], about [rate] a second (replaces any earlier stream). */
+    fun start(emojis: List<String>, rate: Float) {
+        bubbles.clear()
+        this.emojis = emojis.filter { it.isNotEmpty() }
+        perSecond = if (this.emojis.isEmpty()) 0f else rate
+        owed = 1.5f                          // a couple straight away
+        if (!running) {
+            running = true
+            lastFrame = System.nanoTime()
+            postInvalidateOnAnimation()
+        }
+    }
+
+    fun clear() {
+        bubbles.clear()
+        perSecond = 0f
+        running = false
+        invalidate()
+    }
+
+    // Hidden (the score screen closed): stop and free the emoji pictures (about 1 MB on a 4K TV)
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        if (!isVisible) freeAll()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        freeAll()
+    }
+
+    private fun freeAll() {
+        clear()
+        cache.values.forEach { it.recycle() }
+        cache.clear()
+    }
+
+    private fun bitmapFor(emoji: String): Bitmap = cache.getOrPut(emoji) {
+        val side = (44 * resources.displayMetrics.density).toInt().coerceIn(16, 200)
+        val bmp = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = side * 0.78f; textAlign = Paint.Align.CENTER }
+        val fm = p.fontMetrics
+        Canvas(bmp).drawText(emoji, side / 2f, side / 2f - (fm.ascent + fm.descent) / 2f, p)
+        bmp
+    }
+
+    private fun spawn() {
+        val w = width.toFloat(); val h = height.toFloat()
+        if (w <= 0f || h <= 0f || bubbles.size >= MAX) return
+        val d = resources.displayMetrics.density
+        val size = (30 + Random.nextFloat() * 22) * d
+        bubbles += Bubble(
+            x = w * (0.015f + Random.nextFloat() * 0.12f), y = h + size,
+            vy = (70 + Random.nextFloat() * 60) * d, sway = (8 + Random.nextFloat() * 14) * d,
+            phase = Random.nextFloat() * 6.28f, size = size, bmp = bitmapFor(emojis[Random.nextInt(emojis.size)]),
+            age = 0f, life = 3.6f + Random.nextFloat() * 1.6f
+        )
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        if (!running) return
+        val now = System.nanoTime()
+        val dt = ((now - lastFrame) / 1e9f).coerceAtMost(0.05f)
+        lastFrame = now
+        owed += perSecond * dt
+        while (owed >= 1f) { owed -= 1f; spawn() }
+        val iter = bubbles.iterator()
+        while (iter.hasNext()) {
+            val b = iter.next()
+            b.age += dt
+            b.y -= b.vy * dt
+            if (b.age >= b.life || b.y < -b.size) { iter.remove(); continue }
+            val t = b.age / b.life
+            // pop in, float, fade out near the top of its path
+            val grow = min(1f, b.age / 0.25f)
+            paint.alpha = (255 * min(1f, (1f - t) / 0.35f)).toInt().coerceIn(0, 255)
+            val s = b.size * (0.6f + 0.4f * grow)
+            val x = b.x + sin(b.phase + b.age * 2.4f) * b.sway
+            box.set(x - s / 2, b.y - s / 2, x + s / 2, b.y + s / 2)
+            canvas.drawBitmap(b.bmp, null, box, paint)
+        }
+        if (perSecond > 0f || bubbles.isNotEmpty()) postInvalidateOnAnimation() else running = false
+    }
+
+    private companion object { const val MAX = 40 }
 }

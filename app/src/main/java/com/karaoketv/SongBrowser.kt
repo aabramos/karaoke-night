@@ -42,6 +42,9 @@ class SongBrowser(
     var onResults: ((Boolean) -> Unit)? = null
     // Declared before init, which fills it
     private var picks: List<Pair<String, String>> = emptyList()
+    /** The recently sung songs, for the "🕘 Played" chip (shown first when set). */
+    var played: (() -> List<Played>)? = null
+    private val chipOffset get() = if (played != null) 1 else 0
 
     init {
         searchBox.setOnEditorActionListener { v, actionId, event ->
@@ -65,21 +68,35 @@ class SongBrowser(
         picks = list
         chips.removeAllViews()
         (chips.parent as? android.widget.HorizontalScrollView)?.scrollTo(0, 0)
-        list.forEachIndexed { i, (label, query) ->
-            val chip = TextView(activity).apply {
-                text = label
-                textSize = 15f
-                setTextColor(0xFFFFFFFF.toInt())
-                setBackgroundResource(R.drawable.chip_bg)
-                isFocusable = true
-                isClickable = true
-                setPadding(px(18), px(9), px(18), px(9))
-                setOnClickListener { selectChip(i); run(query) }
-            }
-            chips.addView(chip, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { marginEnd = px(10) })
+        if (played != null) addChip("🕘 Played") { showPlayed() }
+        list.forEachIndexed { i, (label, query) -> addChip(label) { selectChip(i); run(query) } }
+    }
+
+    private fun addChip(label: String, onClick: () -> Unit) {
+        val chip = TextView(activity).apply {
+            text = label
+            textSize = 15f
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundResource(R.drawable.chip_bg)
+            isFocusable = true
+            isClickable = true
+            setPadding(px(18), px(9), px(18), px(9))
+            setOnClickListener { onClick() }
         }
+        chips.addView(chip, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { marginEnd = px(10) })
+    }
+
+    /** The last songs that were sung, straight from memory (no internet needed). */
+    fun showPlayed() {
+        generation++                        // a search still loading must not replace this list
+        lastQuery = null
+        for (i in 0 until chips.childCount) chips.getChildAt(i).isSelected = i == 0
+        val list = played?.invoke().orEmpty()
+        render(list.map { it.song }, list.associate { it.song.id to History.label(it) })
+        if (list.isEmpty()) showStatus("Nothing has been sung yet.\nSongs appear here after they're played.")
+        onResults?.invoke(list.isNotEmpty())
     }
 
     fun runQuickPick(index: Int) {
@@ -152,7 +169,8 @@ class SongBrowser(
         return if (columns > 1) (row as? ViewGroup)?.getChildAt(0) else row
     }
 
-    private fun render(songs: List<Song>) {
+    /** [notes]: a line to show instead of the channel, by video ID (used for "🕘 Played"). */
+    private fun render(songs: List<Song>, notes: Map<String, String> = emptyMap()) {
         results.removeAllViews()
         scroll.scrollTo(0, 0)
         scroll.animate().cancel()
@@ -161,7 +179,7 @@ class SongBrowser(
         if (columns > 1) {
             songs.chunked(columns).forEach { rowSongs ->
                 val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
-                rowSongs.forEach { row.addView(card(R.layout.item_song, row, it)) }
+                rowSongs.forEach { row.addView(card(R.layout.item_song, row, it, notes[it.id])) }
                 // keep card widths equal on the last, shorter row
                 repeat(columns - rowSongs.size) {
                     row.addView(View(activity), LinearLayout.LayoutParams(0, 1, 1f).apply { setMargins(px(7), 0, px(7), 0) })
@@ -169,16 +187,16 @@ class SongBrowser(
                 results.addView(row)
             }
         } else {
-            songs.forEach { results.addView(card(R.layout.item_song_row, results, it)) }
+            songs.forEach { results.addView(card(R.layout.item_song_row, results, it, notes[it.id])) }
         }
     }
 
-    private fun card(layout: Int, parent: ViewGroup, song: Song): View {
+    private fun card(layout: Int, parent: ViewGroup, song: Song, note: String? = null): View {
         val v = inflater.inflate(layout, parent, false)
         v.findViewById<View>(R.id.thumbFrame).clipToOutline = true
         v.findViewById<TextView>(R.id.title).text = song.title
         v.findViewById<TextView>(R.id.channel).text =
-            listOf(song.channel, viewsLabel(song.views)).filter { it.isNotEmpty() }.joinToString("  ·  ")
+            note ?: listOf(song.channel, viewsLabel(song.views)).filter { it.isNotEmpty() }.joinToString("  ·  ")
         v.findViewById<TextView>(R.id.dur).apply {
             text = song.duration
             visibility = if (song.duration.isEmpty()) View.GONE else View.VISIBLE
@@ -193,8 +211,9 @@ class SongBrowser(
         return v
     }
 
+    /** [index] into the quick picks (-1 = none); the "🕘 Played" chip, when shown, comes first. */
     private fun selectChip(index: Int) {
-        for (i in 0 until chips.childCount) chips.getChildAt(i).isSelected = i == index
+        for (i in 0 until chips.childCount) chips.getChildAt(i).isSelected = index >= 0 && i == index + chipOffset
     }
 
     private fun showStatus(text: String) {

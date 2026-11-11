@@ -124,6 +124,7 @@
 
         <TextView
             android:id="@+id/tbPause"
+            android:contentDescription="Pause or resume"
             android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:layout_marginStart="6dp"
@@ -152,11 +153,13 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:importantForAccessibility="no"
                 android:text="🎵"
                 android:textSize="18sp" />
 
             <SeekBar
                 android:id="@+id/tbVolume"
+                android:contentDescription="Music volume"
                 android:layout_width="220dp"
                 android:layout_height="40dp"
                 android:max="100"

@@ -46,6 +46,7 @@
         <!-- Focusable: the remote's ◀ ▶ move it; on phones it's dragged -->
         <SeekBar
             android:id="@+id/volumeSlider"
+            android:contentDescription="Volume for songs and sound effects"
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:layout_marginTop="4dp"

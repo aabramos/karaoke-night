@@ -52,6 +52,9 @@ class SongSearch(context: Context) {
 
     fun lookup(id: String): Song? = synchronized(known) { known[id] }
 
+    /** Songs phones may add without searching first (the recently played ones). */
+    fun remember(songs: List<Song>) = synchronized(known) { songs.forEach { known[it.id] = it } }
+
     /** Blocking; call off the main thread. */
     fun search(userQuery: String): List<Song> {
         val q = userQuery.trim().take(80)

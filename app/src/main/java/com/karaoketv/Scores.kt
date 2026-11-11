@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Random
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -46,6 +47,79 @@ object Judge {
         score >= 80 -> 3
         score >= 70 -> 2
         else -> 1
+    }
+}
+
+/** One of the three (fake) celebrity judges and the paddle they hold up. */
+data class JudgeCard(val face: String, val name: String, val points: Double, val quip: String) {
+    /** "8.5", "9" or "10" for the paddle. */
+    val paddle: String get() = if (points % 1.0 == 0.0) points.toInt().toString() else String.format(java.util.Locale.US, "%.1f", points)
+}
+
+/**
+ * The judging panel: each judge's paddle stays close to the real score (out of 10) with
+ * their own personality. Whiskers is moody, RoboJudge is precise, Grandma is always generous.
+ */
+object Panel {
+    fun judges(score: Int, rng: Random = Random()): List<JudgeCard> {
+        val base = score / 10.0
+        fun half(x: Double) = (Math.round(x * 2) / 2.0).coerceIn(5.0, 10.0)
+        val cat = half(base + rng.nextGaussian() * 0.9)
+        val robot = (Math.round((base + rng.nextGaussian() * 0.3) * 10) / 10.0).coerceIn(5.0, 10.0)
+        val gran = half(base + 0.5 + abs(rng.nextGaussian()) * 0.4)
+        fun pick(list: List<String>) = list[rng.nextInt(list.size)]
+        return listOf(
+            JudgeCard("🐱", "WHISKERS", cat, pick(when {
+                cat >= 9.5 -> listOf("Purr-fect!", "Meow-velous!", "I'd wake up for that")
+                cat >= 8.5 -> listOf("Not bad, human", "Worth a slow blink", "Acceptable. Feed me.")
+                cat >= 7.0 -> listOf("*yawns*", "I've heard better… from dogs", "Meh-ow")
+                else -> listOf("Hisssss…", "*knocks mic off table*", "Even my hairballs sing better")
+            })),
+            JudgeCard("🤖", "ROBOJUDGE", robot, pick(when {
+                robot >= 9.5 -> listOf("ERROR: TOO GOOD", "SYSTEM OVERLOAD!", "UPLOADING TO MY PLAYLIST")
+                robot >= 8.5 -> listOf("PITCH 97% HUMAN", "BEEP BOOP. APPROVED.", "EMOTION DETECTED")
+                robot >= 7.0 -> listOf("RECALIBRATING EARS…", "ACCEPTABLE OUTPUT", "BEEP. OK. BEEP.")
+                else -> listOf("DOES NOT COMPUTE", "REBOOTING EARS…", "404: NOTE NOT FOUND")
+            })),
+            JudgeCard("👵", "GRANDMA ROSA", gran, pick(when {
+                gran >= 9.5 -> listOf("I cried, darling!", "Better than Sinatra!", "Marry this voice!")
+                gran >= 8.5 -> listOf("Lovely, dear!", "So proud of you!", "That's my favourite!")
+                else -> listOf("Have a cookie, sweetie 🍪", "You did your best, dear", "Louder next time, love!")
+            })),
+        )
+    }
+}
+
+/**
+ * Little achievements shown under the rank: debut, personal best, hat-trick, comebacks…
+ * [before] is the leaderboard *before* this entry was added. At most [limit] are returned,
+ * the most special first.
+ */
+object Badges {
+    fun earned(entry: Entry, before: List<Entry>, hour: Int, limit: Int = 2): List<String> {
+        val since = entry.time - 12L * 3600_000
+        val mine = before.filter { it.duet == entry.duet && it.name.equals(entry.name, ignoreCase = true) }
+        val tonight = mine.filter { it.time >= since }.sortedBy { it.time }
+        val out = ArrayList<String>()
+        if (entry.score >= 100) out += "💯 PERFECT SCORE"
+        if (mine.isEmpty()) {
+            out += if (entry.duet) "👫 First duet together!" else "🌟 Debut performance!"
+        } else {
+            val best = mine.maxOf { it.score }
+            when {
+                entry.score > best -> out += "📈 New personal best! (was $best)"
+                entry.score == best -> out += "🎯 Matched your best ever"
+            }
+        }
+        val last = tonight.lastOrNull()
+        if (last != null && last.score < 75 && entry.score >= 85) out += "🚀 What a comeback!"
+        if (entry.score >= 85 && tonight.size >= 2 && tonight.takeLast(2).all { it.score >= 85 }) out += "🔥 On fire: 3 great songs in a row"
+        val count = tonight.size + 1
+        if (count == 3) out += "🎩 Hat-trick: 3 songs tonight"
+        else if (count >= 5 && count % 5 == 0) out += "🏃 $count songs tonight — marathon singer!"
+        if (hour in 1..4) out += "🦉 Night owl"
+        if (entry.duet && entry.score >= 90) out += "💞 Dream team"
+        return out.take(limit)
     }
 }
 
@@ -159,3 +233,51 @@ class Leaderboard(context: Context) {
 
 /** How a duet's two names are joined everywhere: "Ana & Rui". */
 const val DUET_JOIN = " & "
+
+/** A song that was sung, for "🕘 Played". */
+data class Played(val song: Song, val singer: String, val time: Long)
+
+/** The last [MAX] different songs that were sung, most recent first. Survives restarts. */
+class History(context: Context) {
+    private val prefs = context.getSharedPreferences("history", Context.MODE_PRIVATE)
+    @Volatile private var cached: List<Played>? = null
+
+    @Synchronized
+    fun all(): List<Played> {
+        cached?.let { return it }
+        val arr = runCatching { JSONArray(prefs.getString("played", "[]")) }.getOrElse { JSONArray() }
+        val list = (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val id = o.optString("i")
+            if (!isVideoId(id)) return@mapNotNull null
+            Played(Song(id, o.optString("t").take(150), o.optString("c").take(80), o.optString("d").take(10), o.optLong("v")),
+                o.optString("s").take(45), o.optLong("w"))
+        }
+        cached = list
+        return list
+    }
+
+    @Synchronized
+    fun add(song: Song, singer: String) {
+        val list = (listOf(Played(song, singer, System.currentTimeMillis())) + all().filter { it.song.id != song.id }).take(MAX)
+        cached = list
+        val arr = JSONArray()
+        list.forEach {
+            arr.put(JSONObject().put("i", it.song.id).put("t", it.song.title).put("c", it.song.channel)
+                .put("d", it.song.duration).put("v", it.song.views).put("s", it.singer).put("w", it.time))
+        }
+        prefs.edit().putString("played", arr.toString()).apply()
+    }
+
+    companion object {
+        const val MAX = 10
+
+        /** "🎤 Ana · 21:40" or "🎤 Ana · Tue" for older ones. */
+        fun label(p: Played): String {
+            val age = System.currentTimeMillis() - p.time
+            val fmt = if (age < 20L * 3600_000) "HH:mm" else "EEE d MMM"
+            val whenText = java.text.SimpleDateFormat(fmt, java.util.Locale.ENGLISH).format(java.util.Date(p.time))
+            return "🎤 ${p.singer}  ·  $whenText"
+        }
+    }
+}

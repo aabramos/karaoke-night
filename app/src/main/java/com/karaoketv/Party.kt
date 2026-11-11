@@ -137,6 +137,7 @@ class PartyBackend(
     private val queue: PartyQueue,
     private val search: SongSearch,
     private val board: Leaderboard,
+    private val history: History,
     listener: Listener,
 ) : PartyServer.Backend {
 
@@ -171,6 +172,15 @@ class PartyBackend(
         o.put("picks", picks)
         // Everyone who has sung or been picked, so guests can tap their name instead of typing it
         o.put("players", JSONArray().also { a -> board.players().forEach { a.put(it) } })
+        // The last songs sung, to sing again ("🕘 Played")
+        val played = history.all()
+        search.remember(played.map { it.song })
+        o.put("recent", JSONArray().also { a ->
+            played.forEach {
+                a.put(JSONObject().put("id", it.song.id).put("title", it.song.title).put("channel", History.label(it))
+                    .put("dur", it.song.duration))
+            }
+        })
         return o.put("queue", arr).toString()
     }
 

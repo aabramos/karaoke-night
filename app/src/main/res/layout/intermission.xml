@@ -157,6 +157,7 @@
 
         <com.karaoketv.QrView
             android:id="@+id/imQr"
+            android:contentDescription="QR code: scan it to add songs from your phone"
             android:layout_width="120dp"
             android:layout_height="120dp" />
 

@@ -18,15 +18,16 @@ h2{font-size:13px;letter-spacing:.2em;color:var(--cyan);margin:22px 0 8px}
 @keyframes pulse{50%{transform:scale(1.15)}}
 .now b{display:block;font-size:18px;color:var(--gold)}
 .now small{color:var(--dim)}
-input{width:100%;background:var(--card2);border:2px solid var(--line);color:#fff;border-radius:999px;padding:12px 18px;font-size:16px;outline:none}
+input{-webkit-appearance:none;appearance:none;width:100%;background:var(--card2);border:2px solid var(--line);color:#fff;border-radius:999px;padding:12px 18px;font-size:16px;outline:none}
 input:focus{border-color:var(--cyan)}
+input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .partner{margin-top:8px}
 .row{display:flex;gap:8px}
 .btn{border:0;border-radius:999px;background:var(--pink);color:#fff;font-weight:800;padding:0 18px;font-size:16px;min-height:46px}
 .btn:active{transform:scale(.96)}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:10px 0 2px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
-.chip{flex:none;background:var(--card2);border:1px solid var(--line);color:#fff;border-radius:999px;padding:8px 14px;font-size:14px}
+.chip{flex:none;background:var(--card2);border:1px solid var(--line);color:#fff;border-radius:999px;padding:10px 14px;font-size:14px;min-height:40px}
 .res{display:flex;gap:10px;align-items:center;padding:8px;border-radius:14px;background:var(--card);margin-top:8px;border:1px solid var(--line)}
 .res img{width:112px;height:63px;object-fit:cover;border-radius:10px;flex:none;background:#120a22}
 .res .t{flex:1;min-width:0}
@@ -56,6 +57,8 @@ input:focus{border-color:var(--cyan)}
 #modal p{color:var(--dim);margin:0 0 16px;font-size:14px}
 #modal .row{justify-content:center}
 .btn.ghost{background:var(--card2);border:1px solid var(--line)}
+.btn:focus-visible,.chip:focus-visible,.add:focus-visible,.link:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.now .mic{animation:none}#toast{transition:none}.btn:active{transform:none}}
 .spin{display:inline-block;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
 </style>
 </head>
@@ -65,22 +68,22 @@ input:focus{border-color:var(--cyan)}
 <div class="card now" id="now"><div class="mic">🎤</div><div><b id="nowSinger">Waiting for the first singer…</b><small id="nowSong">Add a song below!</small></div></div>
 
 <h2>YOUR NAME</h2>
-<input id="name" maxlength="20" placeholder="Who's singing?" autocomplete="nickname">
-<input id="partner" class="partner" maxlength="20" placeholder="👫 Duet partner (optional)" autocomplete="off">
+<input id="name" maxlength="20" placeholder="Who's singing?" autocomplete="nickname" aria-label="Your name">
+<input id="partner" class="partner" maxlength="20" placeholder="👫 Duet partner (optional)" autocomplete="off" aria-label="Duet partner, optional">
 <div class="players" id="players"></div>
 <div class="phint" id="phint" hidden><span id="phintText">Tap a name to fill the box above</span><button class="link" id="editPlayers" type="button">Edit</button></div>
-<div id="modal" role="dialog" aria-modal="true"><div class="box"><b id="modalTitle"></b><p id="modalText"></p>
+<div id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalText"><div class="box"><b id="modalTitle"></b><p id="modalText"></p>
   <div class="row"><button class="btn ghost" id="modalKeep" type="button">Keep</button><button class="btn" id="modalRemove" type="button">🗑 Remove</button></div></div></div>
 
 <h2 id="findTitle">FIND A SONG</h2>
-<form class="row" id="sf"><input id="q" maxlength="80" placeholder="Song or artist…" enterkeyhint="search"><button class="btn">Go</button></form>
+<form class="row" id="sf"><input id="q" type="search" maxlength="80" placeholder="Song or artist…" enterkeyhint="search" aria-label="Search a song or artist"><button class="btn">Go</button></form>
 <div class="chips" id="chips"></div>
 <div id="results"></div>
 
 <h2>UP NEXT</h2>
 <div class="card" id="queue"><div class="muted">The queue is empty.</div></div>
 
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
 (function(){
@@ -162,8 +165,11 @@ input:focus{border-color:var(--cyan)}
 
   // ---- quick picks: the same as on the TV, for the party's country ----
   var region = null;
+  var recent = [];     // the last songs sung on the TV, from /api/state
+  var searchGen = 0;   // bumped by each search, so a slow answer can't replace newer results
   function setPicks(list){
     var box = $('chips'); box.textContent = '';
+    var pc = el('button','chip','🕘 Played'); pc.onclick = showPlayed; box.appendChild(pc);
     (list || []).forEach(function(p){
       if (!p || typeof p[0] !== 'string' || typeof p[1] !== 'string') return;
       var c = el('button','chip',p[0]); c.onclick = function(){ $('q').value = p[1]; search(p[1]); }; box.appendChild(c);
@@ -176,19 +182,31 @@ input:focus{border-color:var(--cyan)}
   function search(q){
     var box = $('results'); box.textContent = '';
     box.appendChild(el('div','muted')).innerHTML = '<span class="spin">🎵</span> Searching…';
+    var mine = ++searchGen;
     api('/api/search?q=' + encodeURIComponent(q)).then(function(list){
-      box.textContent = '';
-      if (!list.length) { box.appendChild(el('div','muted','No karaoke versions found. Try another song.')); return; }
+      if (mine !== searchGen) return;   // a newer search or the Played list took over
+      showSongs(list, 'No karaoke versions found. Try another song.');
+    }).catch(function(e){ if (mine !== searchGen) return; box.textContent = ''; box.appendChild(el('div','muted',e.message)); });
+  }
+
+  // "🕘 Played": the last songs sung tonight, to sing again with one tap
+  function showPlayed(){
+    searchGen++;
+    showSongs(recent, 'Nothing has been sung yet. Songs show up here after they play.');
+  }
+
+  function showSongs(list, emptyText){
+      var box = $('results'); box.textContent = '';
+      if (!list.length) { box.appendChild(el('div','muted',emptyText)); return; }
       list.forEach(function(v){
         if (!ID.test(v.id)) return;
         var r = el('div','res');
         var img = el('img'); img.loading = 'lazy'; img.alt = ''; img.onerror = function(){ this.style.visibility = 'hidden'; }; img.src = 'https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg';
         var t = el('div','t'); t.appendChild(el('b',null,v.title)); t.appendChild(el('small',null,[v.channel, v.dur, v.views].filter(function(x){ return x; }).join(' · ')));
-        var b = el('button','add','+'); b.setAttribute('aria-label','Add to queue');
+        var b = el('button','add','+'); b.setAttribute('aria-label','Add ' + v.title + ' to the queue');
         b.onclick = function(){ add(v, b); };
         r.appendChild(img); r.appendChild(t); r.appendChild(b); box.appendChild(r);
       });
-    }).catch(function(e){ box.textContent = ''; box.appendChild(el('div','muted',e.message)); });
   }
 
   function add(v, btn){
@@ -211,6 +229,7 @@ input:focus{border-color:var(--cyan)}
       var list = Array.isArray(s.players) ? s.players.filter(function(p){ return typeof p === 'string'; }).slice(0, 60) : [];
       var key = JSON.stringify(list);
       if (key !== playersKey) { playersKey = key; players = list; renderPlayers(); }
+      recent = Array.isArray(s.recent) ? s.recent.filter(function(v){ return v && ID.test(v.id) && typeof v.title === 'string'; }).slice(0, 10) : [];
       var c = s.country || {};
       if (s.picks && c.code !== region) {
         region = c.code;
