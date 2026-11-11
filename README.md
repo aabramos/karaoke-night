@@ -60,6 +60,11 @@ That's it. The queue is saved, so if someone exits the app by accident, everythi
 | Singing | BACK | Menu: keep singing / score me / skip / lobby |
 | Score | OK | Continue (it also continues by itself) |
 
+**On a phone or tablet** everything works by touch: tap **Next up** to start (or use its Later / Lobby
+buttons), tap the video for the controls bar (pause, a music-volume slider, queue, menu), tap the score
+to continue.
+The phone's Back gesture does what BACK does on the remote.
+
 ## Guests' phones
 
 The TV runs a tiny web page for the party. Guests scan the QR code, type their name once, search, and tap **+**.
@@ -68,8 +73,10 @@ Their phones also show who's singing and the queue, updated live.
 - Phones must be on the **same Wi-Fi** as the Shield. Guest networks often block devices from seeing each
   other; if the page won't open, use the main network.
 - Security: the page only answers devices on your local network, and only with the secret key that's inside
-  the QR code. Phones can only add songs that came out of the karaoke search. There are limits on request
-  size and how many songs or searches one phone can make per minute, and at most 3 queued songs per singer.
+  the QR code. Wrong keys are limited to a few tries a minute, and the key changes after 12 hours (only
+  between parties, so phones that already joined keep working). Phones can only add songs that came out
+  of the karaoke search. There are limits on request size and time, on how many songs or searches one
+  phone can make per minute, and at most 3 queued songs per singer.
 
 ## Searching: with or without a YouTube API key
 
@@ -160,8 +167,8 @@ It appears in the Shield's app row as **Karaoke Night**.
   is running and is released in the lobby.
 - Small thumbnails decoded at half memory, a capped image cache, and caches dropped when Android asks for memory.
 - Key-less search reads YouTube's reply as a stream instead of loading it all into memory.
-- Lobby music streams from the app instead of being loaded into memory, and loops without a gap by
-  handing over between two players; effects are tiny.
+- Lobby music is decoded a little at a time (never loaded whole into memory) and fed to the speaker
+  as one continuous stream, so the loop point has no gap or click; effects are tiny.
 - No heavy libraries: no RecyclerView, image or QR libraries. The QR code generator and the phone server
   are built in. Release builds are shrunk with R8.
 - Pure Java/Kotlin with no native code, so it runs on the Shield's 32-bit (armeabi-v7a) and 64-bit setups alike.
@@ -178,25 +185,31 @@ It appears in the Shield's app row as **Karaoke Night**.
 | Quick picks | `Countries.kt`: `INTERNATIONAL_PICKS`, and `HAND` for a country's own picks (phones get the same ones) |
 | How generous the judge is | `Scores.kt`: `85 + 6 * rng.nextGaussian()`: raise 85 for higher scores, raise 6 for more spread |
 | Judge comments | `Scores.kt` → `lines` |
-| Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops without a gap); volume in `Audio.kt` → `LOBBY_VOLUME` |
-| Hidden channels | `SongSearch.kt` → `NO_EMBED_CHANNELS` |
+| Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops from end to start without a gap); volume in `Audio.kt` → `LOBBY_VOLUME` |
 | Autostart delay | `MainActivity.kt` → `AUTOSTART_MS` (30 s) |
 | Surprise stage names | `MainActivity.kt` → `STAGE_NAMES` |
 | Fresh player every N songs | `MainActivity.kt` → `RECYCLE_PLAYER_AFTER` |
 | Max songs per singer | `Party.kt` → `MAX_PER_SINGER` |
+| Covered seconds at the end of a song | `MainActivity.kt` → `END_COVER_S` |
 
 ## Troubleshooting
 
+- **The app stopped**: open it again. It shows what went wrong instead of the party; take a photo of
+  that screen to get it fixed, then press **Try again**.
 - **No QR code / "Connect the TV to your home network"**: the Shield isn't connected to Wi-Fi or Ethernet.
 - **🎙 says voice search isn't available**: type instead; the remote's own microphone button opens Google Assistant, not this app.
 - **Phone says "Scan the QR code on the TV"**: scan again; the link includes the party key.
 - **"YouTube search is unavailable"** without a key: YouTube changed something. Add an API key (above).
 - **A video doesn't play**: some owners block playback outside YouTube, and no app can get around
-  that. Sing King and KaraFun do this, so their videos are hidden from search. When another video
-  refuses, the app plays a different karaoke version of the same song instead (it tries twice, then
-  moves on), and remembers the refusal so that video no longer shows up. A channel that refuses three
-  times is hidden. To forget all of this, clear the app's storage in Android's app settings.
+  that. Search results are checked first, and videos whose owner blocks this are left out. If a video
+  still refuses, the app plays a different karaoke version of the same song instead (it tries twice, then
+  moves on), and remembers the refusal so that video no longer shows up. A channel whose videos refuse
+  three times is hidden. To forget all of this, clear the app's storage in Android's app settings.
 - **Ads**: YouTube may show ads before some videos, as in any app using YouTube's official player.
+- **Video suggestions**: YouTube shows suggestion tiles over a paused video and in the last seconds of
+  many videos, and no app can switch them off. Karaoke Night covers the video at those moments: while
+  paused, and during the last 12 seconds (the music keeps playing). Change the seconds in
+  `MainActivity.kt` → `END_COVER_S`.
 
 ---
 
