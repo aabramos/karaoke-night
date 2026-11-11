@@ -6,8 +6,18 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.lang.ref.WeakReference
 
-data class Song(val id: String, val title: String, val channel: String, val duration: String) {
+/** [views]: YouTube view count, 0 if unknown. */
+data class Song(val id: String, val title: String, val channel: String, val duration: String, val views: Long = 0) {
     val thumb: String get() = "https://i.ytimg.com/vi/$id/mqdefault.jpg"
+}
+
+/** 1234567 → "1.2M views". Empty when unknown. */
+fun viewsLabel(n: Long): String = when {
+    n <= 0 -> ""
+    n >= 1_000_000_000 -> String.format(java.util.Locale.ROOT, "%.1fB views", n / 1e9).replace(".0B", "B")
+    n >= 1_000_000 -> String.format(java.util.Locale.ROOT, "%.1fM views", n / 1e6).replace(".0M", "M")
+    n >= 1_000 -> "${n / 1000}K views"
+    else -> "$n views"
 }
 
 /** [retries]: how many times another version of the song was tried because a video refused to play. */
@@ -127,7 +137,8 @@ class PartyBackend(
     override fun searchJson(query: String): String {
         val arr = JSONArray()
         search.search(query).forEach {
-            arr.put(JSONObject().put("id", it.id).put("title", it.title).put("channel", it.channel).put("dur", it.duration))
+            arr.put(JSONObject().put("id", it.id).put("title", it.title).put("channel", it.channel).put("dur", it.duration)
+                .put("views", viewsLabel(it.views)))
         }
         return arr.toString()
     }

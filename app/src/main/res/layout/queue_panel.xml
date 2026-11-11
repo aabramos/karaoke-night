@@ -126,11 +126,17 @@
 
                 <TextView
                     android:id="@+id/panelStatus"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
+                    android:background="@drawable/pill_bg"
+                    android:elevation="8dp"
                     android:gravity="center"
-                    android:textColor="@color/text_dim"
+                    android:paddingStart="20dp"
+                    android:paddingTop="10dp"
+                    android:paddingEnd="20dp"
+                    android:paddingBottom="10dp"
+                    android:textColor="@color/text_main"
                     android:textSize="15sp"
                     android:visibility="gone" />
             </FrameLayout>

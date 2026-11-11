@@ -110,7 +110,7 @@ input:focus{border-color:var(--cyan)}
         if (!ID.test(v.id)) return;
         var r = el('div','res');
         var img = el('img'); img.loading = 'lazy'; img.alt = ''; img.onerror = function(){ this.style.visibility = 'hidden'; }; img.src = 'https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg';
-        var t = el('div','t'); t.appendChild(el('b',null,v.title)); t.appendChild(el('small',null,(v.channel || '') + (v.dur ? ' · ' + v.dur : '')));
+        var t = el('div','t'); t.appendChild(el('b',null,v.title)); t.appendChild(el('small',null,[v.channel, v.dur, v.views].filter(function(x){ return x; }).join(' · ')));
         var b = el('button','add','+'); b.setAttribute('aria-label','Add to queue');
         b.onclick = function(){ add(v, b); };
         r.appendChild(img); r.appendChild(t); r.appendChild(b); box.appendChild(r);

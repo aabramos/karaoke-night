@@ -30,10 +30,10 @@ class SongSearch(context: Context) {
     private val app = context.applicationContext
     private val apiKey = BuildConfig.YOUTUBE_API_KEY
     private val certSha1: String? by lazy { signingCertSha1() }
-    // "search2": results saved by earlier versions were often nearly empty, so they're dropped
-    private val cacheDir = File(app.cacheDir, "search2").apply {
+    // "search3": results saved by earlier versions were often nearly empty, so they're dropped
+    private val cacheDir = File(app.cacheDir, "search3").apply {
         mkdirs()
-        runCatching { File(app.cacheDir, "search").deleteRecursively() }
+        runCatching { listOf("search", "search2").forEach { File(app.cacheDir, it).deleteRecursively() } }
     }
     @Volatile private var officialBlockedUntil = 0L
 
@@ -63,10 +63,10 @@ class SongSearch(context: Context) {
 
         // Searches are kept on the Shield for 24 h: the lobby appears instantly and API quota is saved
         val filtered = readDiskCache(key) ?: run {
-            var official = false
-            val raw = if (apiKey.isNotBlank() && System.currentTimeMillis() > officialBlockedUntil) {
+            val found = if (apiKey.isNotBlank() && System.currentTimeMillis() > officialBlockedUntil) {
                 try {
-                    officialSearch(query, where).also { official = true }
+                    // The official API already leaves out videos that can't be embedded
+                    officialSearch(query, where).filter(::isKaraoke).filter(::isPlayable).distinctBy { it.id }
                 } catch (e: QuotaException) {
                     officialBlockedUntil = System.currentTimeMillis() + 6 * 3600_000L
                     webSearch(query, where)
@@ -74,9 +74,8 @@ class SongSearch(context: Context) {
             } else {
                 webSearch(query, where)
             }
-            val karaoke = raw.filter(::isKaraoke).filter(::isPlayable).distinctBy { it.id }.take(30)
-            // The official API already left out videos that can't be embedded
-            (if (official) karaoke else dropUnembeddable(karaoke)).also { if (it.isNotEmpty()) writeDiskCache(key, it) }
+            // Most-watched first (stable: equal counts keep YouTube's order)
+            found.sortedByDescending { it.views }.take(MAX_RESULTS).also { if (it.isNotEmpty()) writeDiskCache(key, it) }
         }
         synchronized(memCache) { memCache[key] = filtered }
         // Apply what we've learned since this list was saved (videos that refused to play)
@@ -128,7 +127,7 @@ class SongSearch(context: Context) {
         synchronized(badIds) {
             badIds.remove(s.id)
             badIds.add(s.id)
-            while (badIds.size > 400) badIds.remove(badIds.first())
+            while (badIds.size > 3000) badIds.remove(badIds.first())
             val ch = channelKey(s.channel)
             if (strikeChannel && ch.isNotEmpty()) strikes[ch] = (strikes[ch] ?: 0) + 1
             val o = JSONObject()
@@ -146,7 +145,7 @@ class SongSearch(context: Context) {
     private fun dropUnembeddable(list: List<Song>): List<Song> {
         if (list.isEmpty()) return list
         val pool = synchronized(this) {
-            checker ?: java.util.concurrent.Executors.newFixedThreadPool(6) { r ->
+            checker ?: java.util.concurrent.Executors.newFixedThreadPool(8) { r ->
                 Thread(r, "embed-check").apply { isDaemon = true }
             }.also { checker = it }
         }
@@ -222,20 +221,21 @@ class SongSearch(context: Context) {
         // One cheap extra call (1 unit) for durations and a final "can it be embedded?" check
         val ids = partial.joinToString(",") { it.id }
         val details = JSONObject(httpGet(
-            "https://www.googleapis.com/youtube/v3/videos?part=contentDetails,status" +
-                "&fields=items(id,contentDetails/duration,status/embeddable)&id=${enc(ids)}&key=${enc(apiKey)}"
+            "https://www.googleapis.com/youtube/v3/videos?part=contentDetails,status,statistics" +
+                "&fields=items(id,contentDetails/duration,status/embeddable,statistics/viewCount)&id=${enc(ids)}&key=${enc(apiKey)}"
         )).optJSONArray("items") ?: JSONArray()
-        val info = HashMap<String, Pair<String, Boolean>>()
+        val info = HashMap<String, Triple<String, Boolean, Long>>()
         for (i in 0 until details.length()) {
             val d = details.getJSONObject(i)
-            info[d.optString("id")] = Pair(
+            info[d.optString("id")] = Triple(
                 isoDuration(d.optJSONObject("contentDetails")?.optString("duration").orEmpty()),
-                d.optJSONObject("status")?.optBoolean("embeddable", true) ?: true
+                d.optJSONObject("status")?.optBoolean("embeddable", true) ?: true,
+                d.optJSONObject("statistics")?.optString("viewCount")?.toLongOrNull() ?: 0L
             )
         }
         return partial.mapNotNull { s ->
-            val (dur, embeddable) = info[s.id] ?: return@mapNotNull s
-            if (!embeddable || dur.isEmpty()) null else s.copy(duration = dur)
+            val (dur, embeddable, views) = info[s.id] ?: return@mapNotNull s
+            if (!embeddable || dur.isEmpty()) null else s.copy(duration = dur, views = views)
         }
     }
 
@@ -284,20 +284,23 @@ class SongSearch(context: Context) {
             .put("params", "EgIQAQ%3D%3D")   // filter: videos only
             .toString()
 
-        // Page through the results until enough of them can play here (the biggest karaoke
-        // channels can't, so one page is often nearly empty), at most WEB_PAGES pages.
-        val out = ArrayList<Song>()
+        // Page through the results until enough of them can actually play here. Many karaoke
+        // videos (most of KaraFun's, many of Sing King's) are blocked by their owners outside
+        // YouTube, so each page is checked as it arrives, and paging goes on until WANTED
+        // playable videos are found, or WEB_PAGES pages have been read.
+        val out = LinkedHashMap<String, Song>()
         var request = first
         for (page in 0 until WEB_PAGES) {
             val next = arrayOfNulls<String>(1)
             // Only the first page may fail the search; a later page failing keeps what we have
             val got = if (page == 0) webPage(request, next) else runCatching { webPage(request, next) }.getOrNull() ?: break
-            out += got
-            if (got.isEmpty() || out.count { isKaraoke(it) && isPlayable(it) } >= WANTED) break
+            val candidates = got.filter { it.id !in out && isKaraoke(it) && isPlayable(it) }.distinctBy { it.id }
+            dropUnembeddable(candidates).forEach { out[it.id] = it }
+            if (out.size >= WANTED) break
             val token = next[0] ?: break
             request = JSONObject().put("context", context).put("continuation", token).toString()
         }
-        return out
+        return out.values.toList()
     }
 
     /** One page of results; [next] receives the token for the following page. */
@@ -332,6 +335,9 @@ class SongSearch(context: Context) {
                 while (r.hasNext()) {
                     val name = r.nextName()
                     if (name == "videoRenderer" && r.peek() == JsonToken.BEGIN_OBJECT) readVideo(r)?.let { out += it }
+                    // YouTube's newer result layout (rolled out gradually, so a reply can have either)
+                    else if (name == "lockupViewModel" && r.peek() == JsonToken.BEGIN_OBJECT)
+                        (readJson(r, 0) as? JSONObject)?.let { lockupSong(it) }?.let { out += it }
                     else if (name == "continuationCommand" && r.peek() == JsonToken.BEGIN_OBJECT) readToken(r)?.let { next[0] = it }
                     else walk(r, out, next, depth + 1)
                 }
@@ -357,7 +363,7 @@ class SongSearch(context: Context) {
     }
 
     private fun readVideo(r: JsonReader): Song? {
-        var id = ""; var title = ""; var channel = ""; var length = ""
+        var id = ""; var title = ""; var channel = ""; var length = ""; var views = 0L
         r.beginObject()
         while (r.hasNext()) {
             when (r.nextName()) {
@@ -366,13 +372,38 @@ class SongSearch(context: Context) {
                 "ownerText" -> channel = readText(r)
                 "longBylineText" -> { val t = readText(r); if (channel.isEmpty()) channel = t }
                 "lengthText" -> length = readText(r)
+                "viewCountText" -> views = parseViews(readText(r))
                 else -> r.skipValue()
             }
         }
         r.endObject()
         // No length = live stream or premiere: skip
-        return if (isVideoId(id) && title.isNotEmpty() && length.isNotEmpty()) Song(id, title, channel, length) else null
+        return if (isVideoId(id) && title.isNotEmpty() && length.isNotEmpty()) Song(id, title, channel, length, views) else null
     }
+
+    /** Reads one JSON value into org.json objects (used for single, small result items only). */
+    private fun readJson(r: JsonReader, depth: Int): Any? {
+        if (depth > 40) { r.skipValue(); return null }
+        return when (r.peek()) {
+            JsonToken.BEGIN_OBJECT -> JSONObject().also { o ->
+                r.beginObject()
+                while (r.hasNext()) { val k = r.nextName(); readJson(r, depth + 1)?.let { o.put(k, it) } }
+                r.endObject()
+            }
+            JsonToken.BEGIN_ARRAY -> JSONArray().also { a ->
+                r.beginArray()
+                while (r.hasNext()) readJson(r, depth + 1)?.let { a.put(it) }
+                r.endArray()
+            }
+            JsonToken.STRING -> r.nextString()
+            JsonToken.NUMBER -> r.nextString()
+            JsonToken.BOOLEAN -> r.nextBoolean()
+            else -> { r.skipValue(); null }
+        }
+    }
+
+    /** A video in the newer layout ("lockupViewModel"); null for playlists, channels, live streams. */
+    private fun lockupSong(o: JSONObject): Song? = lockupToSong(o)
 
     /** Reads {"simpleText": ".."} or {"runs": [{"text": ".."}, ...]} */
     private fun readText(r: JsonReader): String {
@@ -423,14 +454,14 @@ class SongSearch(context: Context) {
         val arr = JSONArray(f.readText())
         (0 until arr.length()).map {
             val o = arr.getJSONObject(it)
-            Song(o.getString("i"), o.getString("t"), o.getString("c"), o.optString("d"))
+            Song(o.getString("i"), o.getString("t"), o.getString("c"), o.optString("d"), o.optLong("v"))
         }
     }.getOrNull()
 
     private fun writeDiskCache(key: String, list: List<Song>) {
         runCatching {
             val arr = JSONArray()
-            list.forEach { arr.put(JSONObject().put("i", it.id).put("t", it.title).put("c", it.channel).put("d", it.duration)) }
+            list.forEach { arr.put(JSONObject().put("i", it.id).put("t", it.title).put("c", it.channel).put("d", it.duration).put("v", it.views)) }
             cacheFile(key).writeText(arr.toString())
             // keep the cache folder small
             val files = cacheDir.listFiles() ?: return@runCatching
@@ -460,8 +491,89 @@ class SongSearch(context: Context) {
         private val TRUSTED = listOf("sing king", "karafun", "zoom karaoke", "stingray karaoke", "karaoke")
         private const val CHANNEL_STRIKES = 3
         /** Keyless search reads up to this many pages until it has WANTED playable karaoke videos. */
-        private const val WEB_PAGES = 4
+        private const val WEB_PAGES = 8
         private const val WANTED = 24
+        private const val MAX_RESULTS = 30
+
+        /**
+         * View counts in any of YouTube's forms and languages: "1,234,567 views", "1.234.567
+         * visualizações", "1.2M views", "1,2 mi de visualizações", "12 mil visualizaciones", "3,4 Mio.".
+         */
+        fun parseViews(text: String): Long {
+            val m = COMPACT.find(text)
+            if (m != null) {
+                val number = m.groupValues[1].replace(',', '.').toDoubleOrNull()
+                val unit = m.groupValues[2].lowercase(Locale.ROOT)
+                val mult = when (unit) {
+                    in THOUSANDS -> 1e3
+                    in MILLIONS -> 1e6
+                    in BILLIONS -> 1e9
+                    else -> 0.0
+                }
+                if (number != null && mult > 0) return (number * mult).toLong()
+            }
+            val digits = text.filter { it in '0'..'9' }
+            return if (digits.isEmpty() || digits.length > 13) 0L else digits.toLong()
+        }
+
+        // "thousand / million / billion" as YouTube writes them in its main languages (lower case)
+        private val THOUSANDS = setOf("k", "mil", "tsd", "тыс", "thousand", "mille", "tausend")
+        private val MILLIONS = setOf("m", "mi", "mio", "mln", "млн", "million", "millions", "millionen", "milhão",
+            "milhões", "millón", "millones", "milioni", "milione", "mn")
+        private val BILLIONS = setOf("b", "bi", "bn", "mrd", "mld", "млрд", "billion", "billions", "milliard",
+            "milliards", "milliarden", "mil milhões", "mil millones")
+        // A number with one decimal part, then one of those words
+        private val COMPACT = Regex(
+            "(\\d+(?:[.,]\\d+)?)\\s*(" + (THOUSANDS + MILLIONS + BILLIONS).sortedByDescending { it.length }
+                .joinToString("|") { Regex.escape(it) } + ")\\.?(?![\\p{L}])",
+            RegexOption.IGNORE_CASE
+        )
+        private val DURATION = Regex("^\\d{1,2}(:\\d{2}){1,2}$")
+
+        /**
+         * The newer result layout:
+         *   contentId, contentType = LOCKUP_CONTENT_TYPE_VIDEO,
+         *   metadata.lockupMetadataViewModel.title.content,
+         *   metadata.lockupMetadataViewModel.metadata.contentMetadataViewModel.metadataRows[].metadataParts[].text.content
+         *     (first row: channel; later rows: views, age),
+         *   contentImage …thumbnailBadgeViewModel.text = "4:13" (the duration badge on the thumbnail).
+         */
+        fun lockupToSong(o: JSONObject): Song? {
+            val type = o.optString("contentType")
+            if (type.isNotEmpty() && type != "LOCKUP_CONTENT_TYPE_VIDEO") return null
+            val id = o.optString("contentId")
+            if (!isVideoId(id)) return null
+            val meta = o.optJSONObject("metadata")?.optJSONObject("lockupMetadataViewModel") ?: return null
+            val title = meta.optJSONObject("title")?.optString("content").orEmpty()
+            if (title.isEmpty()) return null
+            val rows = meta.optJSONObject("metadata")?.optJSONObject("contentMetadataViewModel")?.optJSONArray("metadataRows")
+            val lines = ArrayList<List<String>>()
+            if (rows != null) for (i in 0 until rows.length()) {
+                val parts = rows.optJSONObject(i)?.optJSONArray("metadataParts") ?: continue
+                lines += (0 until parts.length()).mapNotNull {
+                    parts.optJSONObject(it)?.optJSONObject("text")?.optString("content")?.takeIf { t -> t.isNotBlank() }
+                }
+            }
+            val channel = lines.firstOrNull()?.firstOrNull().orEmpty()
+            val views = lines.drop(1).flatten().firstOrNull { t -> t.any { it.isDigit() } }?.let { parseViews(it) } ?: 0L
+            val duration = findBadge(o.optJSONObject("contentImage"), 0) ?: return null   // no duration: live or upcoming
+            return Song(id, title, channel, duration, views)
+        }
+
+        /** The duration badge, wherever this version of the layout puts it. */
+        private fun findBadge(o: Any?, depth: Int): String? {
+            if (depth > 12) return null
+            when (o) {
+                is JSONObject -> {
+                    o.optJSONObject("thumbnailBadgeViewModel")?.optString("text")?.trim()
+                        ?.takeIf { DURATION.matches(it) }?.let { return it }
+                    val keys = o.keys()
+                    while (keys.hasNext()) findBadge(o.opt(keys.next()), depth + 1)?.let { return it }
+                }
+                is JSONArray -> for (i in 0 until o.length()) findBadge(o.opt(i), depth + 1)?.let { return it }
+            }
+            return null
+        }
 
         private val STOP_WORDS = setOf(
             "the", "a", "an", "of", "and", "to", "in", "on", "de", "da", "do", "das", "dos", "e", "o", "os",

@@ -2,7 +2,8 @@
 
 A karaoke app for the big screen, built for parties:
 
-- **Karaoke-only search** on YouTube, with quick picks (Top hits, Portuguese, 80s, 90s, Duets, Party…)
+- **Karaoke-only search** on YouTube, with quick picks (Top hits, 80s, 90s, Duets, Party…), most-watched
+  versions first, and only videos that can actually play in the app
 - **Party country**: pick any country (all of them are listed) and the quick picks switch to music
   from there (Fado and Pimba for Portugal, Sertanejo and MPB for Brazil…), while YouTube ranks every
   search for that country and language. Guests' phones follow automatically
@@ -201,7 +202,9 @@ It appears in the Shield's app row as **Karaoke Night**.
 - **Phone says "Scan the QR code on the TV"**: scan again; the link includes the party key.
 - **"YouTube search is unavailable"** without a key: YouTube changed something. Add an API key (above).
 - **A video doesn't play**: some owners block playback outside YouTube, and no app can get around
-  that. Search results are checked first, and videos whose owner blocks this are left out. If a video
+  that. This includes most KaraFun videos and many Sing King ones, so you'll see fewer of those. Search
+  results are checked first, and videos whose owner blocks this are left out (search reads further
+  pages of YouTube's results to make up for them). If a video
   still refuses, the app plays a different karaoke version of the same song instead (it tries twice, then
   moves on), and remembers the refusal so that video no longer shows up. A channel whose videos refuse
   three times is hidden. To forget all of this, clear the app's storage in Android's app settings.

@@ -100,6 +100,7 @@ class SongBrowser(
         val gen = ++generation
         lastQuery = query
         showStatus("🎵  Searching…")
+        scroll.animate().alpha(0.3f).setDuration(150).start()   // old results fade back while searching
         // The background task only keeps a weak link back to this screen, so a slow network
         // request can never hold a closed screen in memory.
         val engine = search
@@ -141,6 +142,8 @@ class SongBrowser(
     fun clear() {
         generation++
         results.removeAllViews()
+        scroll.animate().cancel()
+        scroll.alpha = 1f
         status.visibility = View.GONE
     }
 
@@ -152,6 +155,8 @@ class SongBrowser(
     private fun render(songs: List<Song>) {
         results.removeAllViews()
         scroll.scrollTo(0, 0)
+        scroll.animate().cancel()
+        scroll.alpha = 1f
         status.visibility = View.GONE
         if (columns > 1) {
             songs.chunked(columns).forEach { rowSongs ->
@@ -172,7 +177,8 @@ class SongBrowser(
         val v = inflater.inflate(layout, parent, false)
         v.findViewById<View>(R.id.thumbFrame).clipToOutline = true
         v.findViewById<TextView>(R.id.title).text = song.title
-        v.findViewById<TextView>(R.id.channel).text = song.channel
+        v.findViewById<TextView>(R.id.channel).text =
+            listOf(song.channel, viewsLabel(song.views)).filter { it.isNotEmpty() }.joinToString("  ·  ")
         v.findViewById<TextView>(R.id.dur).apply {
             text = song.duration
             visibility = if (song.duration.isEmpty()) View.GONE else View.VISIBLE
