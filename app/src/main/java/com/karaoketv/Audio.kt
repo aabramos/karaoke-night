@@ -43,9 +43,13 @@ class LobbyMusic(context: Context) {
      */
     private fun chain(p: MediaPlayer) {
         val n = create()
-        if (n == null) { p.isLooping = true; return }
+        val queued = n != null && runCatching { p.setNextMediaPlayer(n) }.isSuccess
+        if (!queued || n == null) {
+            n?.release()
+            runCatching { p.isLooping = true }
+            return
+        }
         next = n
-        p.setNextMediaPlayer(n)
         p.setOnCompletionListener { done ->
             if (player !== done) { done.release(); return@setOnCompletionListener }
             player = n          // already playing

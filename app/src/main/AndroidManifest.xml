@@ -9,6 +9,7 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <application
+        android:name=".KaraokeApp"
         android:allowBackup="false"
         android:banner="@drawable/banner"
         android:icon="@mipmap/ic_launcher"
@@ -21,15 +22,26 @@
         <activity
             android:name=".MainActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density|fontScale"
-            android:exported="true"
+            android:exported="false"
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
-            android:windowSoftInputMode="adjustNothing|stateHidden">
+            android:windowSoftInputMode="adjustNothing|stateHidden" />
+
+        <!-- Launcher entry: opens the party, or the last crash report if the app stopped -->
+        <activity
+            android:name=".StartActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".CrashActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
     </application>
 </manifest>

@@ -239,17 +239,28 @@ object TvScale {
         // The app runs full screen (system bars hidden), so size the canvas from the whole physical
         // screen. The plain display metrics leave out a phone's navigation bar, and edge-to-edge
         // drawing would then push the right edge of the interface under it.
+        val dm = base.resources.displayMetrics
+        val dmW = max(dm.widthPixels, dm.heightPixels)
+        val dmH = min(dm.widthPixels, dm.heightPixels)
         val real = android.graphics.Point()
         runCatching {
-            val dmgr = base.getSystemService(android.hardware.display.DisplayManager::class.java)
-            @Suppress("DEPRECATION")
-            dmgr?.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.getRealSize(real)
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                // The largest window this app can have, in the app's own pixels
+                val b = base.getSystemService(android.view.WindowManager::class.java)!!.maximumWindowMetrics.bounds
+                real.set(b.width(), b.height())
+            } else {
+                val dmgr = base.getSystemService(android.hardware.display.DisplayManager::class.java)
+                @Suppress("DEPRECATION")
+                dmgr?.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.getRealSize(real)
+            }
         }
-        val dm = base.resources.displayMetrics
-        val pw = if (real.x > 0) real.x else dm.widthPixels
-        val ph = if (real.y > 0) real.y else dm.heightPixels
-        val w = max(pw, ph).toFloat()
-        val h = min(pw, ph).toFloat()
+        val rw = max(real.x, real.y)
+        val rh = min(real.x, real.y)
+        // Use the full size only when it's the display metrics plus system bars. A much bigger value
+        // means the panel's physical resolution (a TV sending 4K while the interface runs at 1080p).
+        val plausible = rw in dmW..(dmW * 13 / 10) && rh in dmH..(dmH * 13 / 10)
+        val w = (if (plausible) rw else dmW).toFloat()
+        val h = (if (plausible) rh else dmH).toFloat()
         val density = min(w / BASE_W, h / BASE_H).coerceAtLeast(0.75f)
         return android.content.res.Configuration(base.resources.configuration).apply {
             densityDpi = (density * 160f).toInt()

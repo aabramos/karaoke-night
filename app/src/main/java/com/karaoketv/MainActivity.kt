@@ -121,7 +121,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     /** Scale the whole interface to the TV (see TvScale). */
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(newBase)
-        applyOverrideConfiguration(TvScale.configuration(newBase))
+        // If scaling ever fails, the app still opens (at the device's own size)
+        runCatching { applyOverrideConfiguration(TvScale.configuration(newBase)) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -141,7 +142,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
         volume = prefs.getInt("music_volume", 80)
         queue = PartyQueue(ui).also { it.onChanged = ::onQueueChanged }
-        search = SongSearch(this).also { it.country = Countries.byCode(prefs.getString("country", "")) }
+        search = SongSearch(this).also {
+            it.country = runCatching { Countries.byCode(prefs.getString("country", "")) }.getOrDefault(Countries.INTERNATIONAL)
+        }
         board = Leaderboard(this)
         music = LobbyMusic(this)
         sfx = Sfx(this)
@@ -225,7 +228,13 @@ class MainActivity : Activity(), PartyBackend.Listener {
      * Phones and tablets: hide the status and navigation bars so the whole screen is the party.
      * A swipe from the edge shows them briefly; they hide again by themselves. No effect on TVs.
      */
-    private fun goFullScreen() {
+    private fun goFullScreen() = try {
+        hideSystemBars()
+    } catch (e: Exception) {
+        // Cosmetic only: never let this stop the party
+    }
+
+    private fun hideSystemBars() {
         val w = window
         if (Build.VERSION.SDK_INT >= 28) {
             w.attributes = w.attributes.apply {
