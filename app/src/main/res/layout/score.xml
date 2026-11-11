@@ -3,26 +3,12 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Emoji reactions floating up the left side, behind everything else -->
-    <com.karaoketv.ReactionsView
-        android:id="@+id/scReactions"
-        android:importantForAccessibility="no"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-
-    <!-- The score in the middle, the judges' panel on the right -->
+    <!-- Everything in one column, centred on the screen -->
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:minWidth="440dp"
-        android:gravity="center"
+        android:gravity="center_horizontal"
         android:orientation="vertical">
 
         <LinearLayout
@@ -57,7 +43,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:ellipsize="end"
-            android:maxWidth="500dp"
+            android:maxWidth="700dp"
             android:maxLines="1"
             android:textColor="@color/text_dim"
             android:textSize="15sp" />
@@ -114,7 +100,7 @@
             android:layout_marginTop="8dp"
             android:background="@drawable/pill_bg"
             android:gravity="center"
-            android:maxWidth="500dp"
+            android:maxWidth="700dp"
             android:paddingStart="16dp"
             android:paddingTop="6dp"
             android:paddingEnd="16dp"
@@ -139,18 +125,4 @@
             android:visibility="invisible" />
     </LinearLayout>
 
-    <!-- The judges hold up their paddles one by one -->
-    <LinearLayout
-        android:id="@+id/scJudges"
-        android:layout_width="230dp"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="28dp"
-        android:orientation="vertical">
-
-        <TextView
-            style="@style/Label"
-            android:layout_gravity="center_horizontal"
-            android:text="THE JUDGES" />
-    </LinearLayout>
-    </LinearLayout>
 </FrameLayout>

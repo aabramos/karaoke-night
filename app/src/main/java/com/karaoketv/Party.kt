@@ -172,6 +172,17 @@ class PartyBackend(
         o.put("picks", picks)
         // Everyone who has sung or been picked, so guests can tap their name instead of typing it
         o.put("players", JSONArray().also { a -> board.players().forEach { a.put(it) } })
+        // Tonight's podium: the three best solo singers, each with their best score
+        o.put("top", JSONArray().also { a ->
+            board.topPlayers(board.tonight(), 3).forEach {
+                a.put(JSONObject().put("name", it.name).put("score", it.score).put("song", it.song.take(80)))
+            }
+        })
+        // Tonight's top 3 singers (best score each) and the best duet, for the phones' podium
+        o.put("top", JSONArray().also { a ->
+            board.tonightBest(3).forEach { a.put(JSONObject().put("name", it.name).put("score", it.score)) }
+        })
+        board.tonightBest(1, duet = true).firstOrNull()?.let { o.put("duet", JSONObject().put("name", it.name).put("score", it.score)) }
         // The last songs sung, to sing again ("🕘 Played")
         val played = history.all()
         search.remember(played.map { it.song })

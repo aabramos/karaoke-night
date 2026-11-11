@@ -16,10 +16,8 @@ A karaoke app for the big screen, built for parties:
 - **Duets**: pick two singers for one song (on the TV or a phone); duets have their own ranking
 - **Players list**: everyone who has sung is one tap away on the TV and on guests' phones; a player can be
   removed (with a confirmation), which also removes their scores from the hall of fame
-- **The judge**: drumroll, count-up, stars, a verdict, applause, and confetti + fanfare for 95+. Then
-  a panel of three celebrity judges (🐱 Whiskers, 🤖 RoboJudge and 👵 Grandma Rosa) hold up their paddles
-  with a comment each, emoji reactions float up from the crowd, and achievements pop up: debut, new
-  personal best, hat-trick, comeback, on fire, night owl…
+- **The judge**: drumroll, count-up, stars, a verdict, applause, and confetti + fanfare for 95+, plus
+  achievements: debut, new personal best, hat-trick, comeback, on fire, night owl…
 - **🕘 Played**: the last 10 songs sung, first in the quick picks on the TV and on phones, to sing one again
 - **Hall of fame**: podium and top 8 for tonight, all time and duets. Scores are saved automatically under each singer's name
 - **About** (ℹ️ in the lobby): version number, author and a link (and QR code) to the project page
@@ -50,7 +48,7 @@ That's it. The queue is saved, so if someone exits the app by accident, everythi
 3. **Next up**: the singer's name appears with a 10-second countdown while the video loads.
 4. **Singing**: full-screen video. Press **▼** to open the queue panel on the right and add songs while the song keeps playing.
 5. **Big finish**: in the last second of the song, a "🎤 Big finish!" screen for 5 seconds.
-6. **Score**: drumroll, score, stars, the judges' paddles, rank of the night and any achievements; 5 seconds later the lobby music fades back in, then
+6. **Score**: drumroll, score, stars, rank of the night and any achievements; 5 seconds later the lobby music fades back in, then
    it's on to the next singer.
 
 ## Remote controls
@@ -87,7 +85,8 @@ The phone's Back gesture does what BACK does on the remote.
 The TV runs a tiny web page for the party. Guests scan the QR code, tap their name in the players list (or
 type it once), search (or tap **🕘 Played** for the songs sung so far), and tap **+**. For a duet, fill in **Duet partner** too (tap a name while that box
 is selected). **Edit** under the players list removes a player, after a confirmation.
-Their phones also show who's singing and the queue, updated live.
+Their phones also show who's singing, the queue and **tonight's top 3** (each singer's best score, plus
+the best duet), updated live. Their own spot is highlighted, and a message pops up when someone takes the lead.
 
 - Phones must be on the **same Wi-Fi** as the Shield. Guest networks often block devices from seeing each
   other; if the page won't open, use the main network.
@@ -207,7 +206,6 @@ It appears in the Shield's app row as **Karaoke Night**.
 | Quick picks | `Countries.kt`: `INTERNATIONAL_PICKS`, and `HAND` for a country's own picks (phones get the same ones) |
 | How generous the judge is | `Scores.kt`: `83 + 8 * rng.nextGaussian()`: raise 83 for higher scores, raise 8 for more spread |
 | Judge comments | `Scores.kt` → `lines` |
-| The judges' panel and their quips | `Scores.kt` → `Panel` |
 | Achievements | `Scores.kt` → `Badges` |
 | How many songs "🕘 Played" keeps | `Scores.kt` → `History.MAX` (10) |
 | Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops from end to start without a gap); its fixed level is `Audio.kt` → `LobbyMusic.LEVEL` |

@@ -4,7 +4,6 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Random
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -47,46 +46,6 @@ object Judge {
         score >= 80 -> 3
         score >= 70 -> 2
         else -> 1
-    }
-}
-
-/** One of the three (fake) celebrity judges and the paddle they hold up. */
-data class JudgeCard(val face: String, val name: String, val points: Double, val quip: String) {
-    /** "8.5", "9" or "10" for the paddle. */
-    val paddle: String get() = if (points % 1.0 == 0.0) points.toInt().toString() else String.format(java.util.Locale.US, "%.1f", points)
-}
-
-/**
- * The judging panel: each judge's paddle stays close to the real score (out of 10) with
- * their own personality. Whiskers is moody, RoboJudge is precise, Grandma is always generous.
- */
-object Panel {
-    fun judges(score: Int, rng: Random = Random()): List<JudgeCard> {
-        val base = score / 10.0
-        fun half(x: Double) = (Math.round(x * 2) / 2.0).coerceIn(5.0, 10.0)
-        val cat = half(base + rng.nextGaussian() * 0.9)
-        val robot = (Math.round((base + rng.nextGaussian() * 0.3) * 10) / 10.0).coerceIn(5.0, 10.0)
-        val gran = half(base + 0.5 + abs(rng.nextGaussian()) * 0.4)
-        fun pick(list: List<String>) = list[rng.nextInt(list.size)]
-        return listOf(
-            JudgeCard("🐱", "WHISKERS", cat, pick(when {
-                cat >= 9.5 -> listOf("Purr-fect!", "Meow-velous!", "I'd wake up for that")
-                cat >= 8.5 -> listOf("Not bad, human", "Worth a slow blink", "Acceptable. Feed me.")
-                cat >= 7.0 -> listOf("*yawns*", "I've heard better… from dogs", "Meh-ow")
-                else -> listOf("Hisssss…", "*knocks mic off table*", "Even my hairballs sing better")
-            })),
-            JudgeCard("🤖", "ROBOJUDGE", robot, pick(when {
-                robot >= 9.5 -> listOf("ERROR: TOO GOOD", "SYSTEM OVERLOAD!", "UPLOADING TO MY PLAYLIST")
-                robot >= 8.5 -> listOf("PITCH 97% HUMAN", "BEEP BOOP. APPROVED.", "EMOTION DETECTED")
-                robot >= 7.0 -> listOf("RECALIBRATING EARS…", "ACCEPTABLE OUTPUT", "BEEP. OK. BEEP.")
-                else -> listOf("DOES NOT COMPUTE", "REBOOTING EARS…", "404: NOTE NOT FOUND")
-            })),
-            JudgeCard("👵", "GRANDMA ROSA", gran, pick(when {
-                gran >= 9.5 -> listOf("I cried, darling!", "Better than Sinatra!", "Marry this voice!")
-                gran >= 8.5 -> listOf("Lovely, dear!", "So proud of you!", "That's my favourite!")
-                else -> listOf("Have a cookie, sweetie 🍪", "You did your best, dear", "Louder next time, love!")
-            })),
-        )
     }
 }
 
@@ -154,6 +113,14 @@ class Leaderboard(context: Context) {
 
     fun top(entries: List<Entry>, n: Int = 10) =
         entries.sortedWith(compareByDescending<Entry> { it.score }.thenBy { it.time }).take(n)
+
+    /** Tonight's best [n] singers (or duets), each once, with their best score; ties go to who got there first. */
+    fun tonightBest(n: Int, duet: Boolean = false): List<Entry> =
+        top(tonight(duet), Int.MAX_VALUE).distinctBy { it.name.lowercase() }.take(n)
+
+    /** The best [n] singers: each one once, with their best score (earliest wins a tie). */
+    fun topPlayers(entries: List<Entry>, n: Int = 3) =
+        top(entries, Int.MAX_VALUE).distinctBy { it.name.lowercase() }.take(n)
 
     /** Saves the entry and returns its 1-based rank among tonight's scores of the same kind (solo/duet). */
     @Synchronized

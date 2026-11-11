@@ -57,8 +57,26 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 #modal p{color:var(--dim);margin:0 0 16px;font-size:14px}
 #modal .row{justify-content:center}
 .btn.ghost{background:var(--card2);border:1px solid var(--line)}
+/* tonight's top 3: 1st in the middle, raised; the page order stays 1, 2, 3 for screen readers */
+.podium{display:grid;grid-template-columns:1fr 1.15fr 1fr;gap:8px;align-items:end}
+.pod{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 6px;text-align:center;min-width:0}
+.pod.p1{order:2;padding:14px 6px 12px;border-color:var(--gold);box-shadow:0 0 18px rgba(255,210,63,.22)}
+.pod.p2{order:1}.pod.p3{order:3}
+.pod .m{font-size:22px;line-height:1}
+.pod .av{width:34px;height:34px;border-radius:50%;margin:6px auto 4px;display:grid;place-items:center;font-weight:900;color:#0b0614}
+.pod.p1 .av{width:44px;height:44px;font-size:20px}
+.pod b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pod .s{color:var(--gold);font-weight:900;font-size:20px;line-height:1.2}
+.pod.p1 .s{font-size:26px}
+.pod.open{border-style:dashed;opacity:.6}
+.pod.open .av{background:var(--card2);color:var(--dim)}
+.pod.me{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan) inset}
+.pod .you{display:inline-block;margin-top:3px;font-size:10px;font-weight:900;letter-spacing:.1em;color:#0b0614;background:var(--cyan);border-radius:999px;padding:1px 7px}
+.pod.lead{animation:lead 1.2s ease-out}
+@keyframes lead{0%{transform:scale(.85)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
+.topnote{margin-top:8px;font-size:13px;color:var(--dim);text-align:center}
 .btn:focus-visible,.chip:focus-visible,.add:focus-visible,.link:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
-@media (prefers-reduced-motion:reduce){.now .mic{animation:none}#toast{transition:none}.btn:active{transform:none}}
+@media (prefers-reduced-motion:reduce){.now .mic,.pod.lead{animation:none}#toast{transition:none}.btn:active{transform:none}}
 .spin{display:inline-block;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
 </style>
 </head>
@@ -66,6 +84,9 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 <h1>🎤 KARAOKE <span>NIGHT</span></h1>
 
 <div class="card now" id="now"><div class="mic">🎤</div><div><b id="nowSinger">Waiting for the first singer…</b><small id="nowSong">Add a song below!</small></div></div>
+
+<h2 id="topTitle">🏆 TONIGHT'S TOP 3</h2>
+<div id="top"><div class="muted">Loading…</div></div>
 
 <h2>YOUR NAME</h2>
 <input id="name" maxlength="20" placeholder="Who's singing?" autocomplete="nickname" aria-label="Your name">
@@ -224,12 +245,67 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
       .catch(function(e){ btn.disabled = false; toast(e.message); });
   }
 
+  // ---- tonight's top 3 (best score per singer), with the best duet underneath ----
+  var top = [], duetBest = null, topKey = null, leader = null;
+  function renderTop(){
+    var box = $('top'); box.textContent = '';
+    if (!top.length) {
+      box.appendChild(el('div','muted','No scores yet tonight. The first song takes the crown 👑'));
+      return;
+    }
+    var me = nameEl.value.trim().toLowerCase();
+    var medals = ['🥇','🥈','🥉'], places = ['1st','2nd','3rd'];
+    var pod = el('div','podium');
+    for (var i = 0; i < 3; i++) {
+      var p = top[i];
+      var c = el('div','pod p' + (i + 1));
+      c.appendChild(el('div','m', medals[i])).setAttribute('aria-hidden','true');
+      if (p) {
+        var mine = me && p.name.toLowerCase() === me;
+        if (mine) c.classList.add('me');
+        if (i === 0 && p.name === leader && topKey !== null && justLed) c.classList.add('lead');
+        var av = el('div','av', p.name.charAt(0).toUpperCase()); av.style.background = color(p.name); av.setAttribute('aria-hidden','true');
+        c.appendChild(av); c.appendChild(el('b',null,p.name)); c.appendChild(el('div','s',String(p.score)));
+        if (mine) c.appendChild(el('span','you','YOU'));
+        c.setAttribute('aria-label', places[i] + ' place: ' + p.name + (mine ? ' (you)' : '') + ', ' + p.score + ' points');
+      } else {
+        c.classList.add('open');
+        var q = el('div','av','?'); q.setAttribute('aria-hidden','true'); c.appendChild(q);
+        c.appendChild(el('b',null,'Your spot?')); c.appendChild(el('div','s','–'));
+        c.setAttribute('aria-label', places[i] + ' place: still free');
+      }
+      c.setAttribute('role','listitem');
+      pod.appendChild(c);
+    }
+    pod.setAttribute('role','list');
+    box.appendChild(pod);
+    if (duetBest) box.appendChild(el('div','topnote','👫 Best duet: ' + duetBest.name + ' · ' + duetBest.score));
+  }
+  var justLed = false;
+  function setTop(list, duet){
+    var key = JSON.stringify([list, duet]);
+    if (key === topKey) return;
+    var first = topKey === null;
+    var newLeader = list.length ? list[0].name : null;
+    justLed = !first && newLeader !== null && newLeader !== leader;
+    if (justLed) {
+      var me = nameEl.value.trim().toLowerCase();
+      toast(newLeader.toLowerCase() === me ? '👑 You\'re #1 tonight!' : '👑 ' + newLeader + ' takes the lead with ' + list[0].score + '!');
+    }
+    top = list; duetBest = duet; leader = newLeader; topKey = key;
+    renderTop();
+  }
+  nameEl.addEventListener('input', function(){ if (topKey !== null) { justLed = false; renderTop(); } });
+
   function refresh(){
     api('/api/state').then(function(s){
       var list = Array.isArray(s.players) ? s.players.filter(function(p){ return typeof p === 'string'; }).slice(0, 60) : [];
       var key = JSON.stringify(list);
       if (key !== playersKey) { playersKey = key; players = list; renderPlayers(); }
       recent = Array.isArray(s.recent) ? s.recent.filter(function(v){ return v && ID.test(v.id) && typeof v.title === 'string'; }).slice(0, 10) : [];
+      var tl = Array.isArray(s.top) ? s.top.filter(function(p){ return p && typeof p.name === 'string' && typeof p.score === 'number'; }).slice(0, 3) : [];
+      var db = s.duet && typeof s.duet.name === 'string' && typeof s.duet.score === 'number' ? { name: s.duet.name, score: s.duet.score } : null;
+      setTop(tl.map(function(p){ return { name: p.name, score: p.score }; }), db);
       var c = s.country || {};
       if (s.picks && c.code !== region) {
         region = c.code;

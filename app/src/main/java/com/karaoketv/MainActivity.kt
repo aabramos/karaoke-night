@@ -1096,11 +1096,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
         findViewById<TextView>(R.id.scSong).text = item.song.title
         val scoreView = findViewById<TextView>(R.id.scScore)
         scoreView.text = "--"
-        listOf(R.id.scStars, R.id.scVerdict, R.id.scRank, R.id.scNext, R.id.scJudges).forEach {
+        // Invisible, not gone: their space is kept, so nothing shifts as they appear
+        listOf(R.id.scStars, R.id.scVerdict, R.id.scRank, R.id.scBadge, R.id.scNext).forEach {
             findViewById<View>(it).visibility = View.INVISIBLE
         }
-        findViewById<View>(R.id.scBadge).visibility = View.GONE
-        findViewById<LinearLayout>(R.id.scJudges).let { it.removeViews(1, it.childCount - 1) }   // keeps the title
         scoreLayer.visibility = View.VISIBLE
         popIn(scoreLayer)
 
@@ -1175,15 +1174,6 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(900).setInterpolator(OvershootInterpolator(2.5f)).setDuration(420).start()
             }
         }
-        findViewById<ReactionsView>(R.id.scReactions).start(
-            when {
-                score >= 90 -> listOf("👏", "😍", "🔥", "🎉", "❤️", "🤩", "🙌", "⭐")
-                score >= 78 -> listOf("👏", "🎶", "👍", "❤️", "😊", "🙌")
-                else -> listOf("👏", "😅", "🙈", "😂", "👍")
-            },
-            rate = when { score >= 95 -> 9f; score >= 90 -> 6f; score >= 80 -> 4f; else -> 2.5f },
-        )
-        showJudges(score)
         val of = if (item.duet) "duet tonight" else "tonight"
         findViewById<TextView>(R.id.scRank).text = when (rank) {
             1 -> "👑 #1 $of!"
@@ -1219,56 +1209,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 animate().alpha(1f).setDuration(300).start()
             }
             ui.postDelayed(scoreAutoNext, 1000)
-        }, 2700)
-    }
-
-    /** The three judges hold up their paddles one after another, on the right of the score. */
-    private fun showJudges(score: Int) {
-        val column = findViewById<LinearLayout>(R.id.scJudges)
-        column.visibility = View.VISIBLE
-        column.getChildAt(0).apply { alpha = 0f; animate().alpha(1f).setStartDelay(500).setDuration(300).start() }
-        Panel.judges(score).forEachIndexed { i, j ->
-            val card = judgeCard(j)
-            column.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                .apply { topMargin = px(8) })
-            card.alpha = 0f
-            card.translationX = px(40).toFloat()
-            val delay = 800L + i * 500L
-            card.animate().alpha(1f).translationX(0f).setStartDelay(delay).setDuration(320).start()
-            ui.postDelayed({ if (mode == Mode.SCORE) sfx.play(sfx.pop, 0.8f) }, delay)
-            card.findViewWithTag<View>("paddle")?.apply {
-                scaleX = 0.2f; scaleY = 0.2f; rotation = -20f
-                animate().scaleX(1f).scaleY(1f).rotation(if (i % 2 == 0) -4f else 4f)
-                    .setStartDelay(delay + 120).setInterpolator(OvershootInterpolator(3f)).setDuration(400).start()
-            }
-        }
-    }
-
-    private fun judgeCard(j: JudgeCard): View = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setBackgroundResource(R.drawable.panel_bg)
-        setPadding(px(10), px(8), px(10), px(8))
-        addView(TextView(context).apply { text = j.face; textSize = 28f; gravity = Gravity.CENTER })
-        addView(LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(px(8), 0, px(6), 0)
-            addView(label(j.name, 11f, R.color.neon_cyan, bold = true).apply { letterSpacing = 0.12f })
-            addView(label(j.quip, 13f, R.color.text_main).apply { maxLines = 2 })
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        // The paddle: a white scorecard, like on TV talent shows
-        addView(TextView(context).apply {
-            tag = "paddle"
-            text = j.paddle
-            textSize = 22f
-            typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)
-            gravity = Gravity.CENTER
-            setTextColor(0xFF0B0614.toInt())
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(if (j.points >= 9.5) getColor(R.color.gold) else 0xFFFFFFFF.toInt())
-                cornerRadius = px(8).toFloat()
-            }
-        }, LinearLayout.LayoutParams(px(54), px(44)))
+        }, 1800)
     }
 
     private val scoreAutoNext = object : Runnable {
