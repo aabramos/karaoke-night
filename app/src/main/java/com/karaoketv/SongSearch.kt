@@ -30,7 +30,11 @@ class SongSearch(context: Context) {
     private val app = context.applicationContext
     private val apiKey = BuildConfig.YOUTUBE_API_KEY
     private val certSha1: String? by lazy { signingCertSha1() }
-    private val cacheDir = File(app.cacheDir, "search").apply { mkdirs() }
+    // "search2": results saved by earlier versions were often nearly empty, so they're dropped
+    private val cacheDir = File(app.cacheDir, "search2").apply {
+        mkdirs()
+        runCatching { File(app.cacheDir, "search").deleteRecursively() }
+    }
     @Volatile private var officialBlockedUntil = 0L
 
     private val memCache = object : LinkedHashMap<String, List<Song>>(16, 0.75f, true) {
@@ -90,11 +94,12 @@ class SongSearch(context: Context) {
     }
 
     // ------------------------------------------------------------------------------------
-    // Can it play inside the app? Some owners (for example Sing King and KaraFun) turn off
-    // playback outside YouTube. No app setting gets around that, so those videos are hidden.
+    // Can it play inside the app? Some owners turn off playback outside YouTube, and no app
+    // setting gets around that. Each video is checked (oEmbed before showing, the player when
+    // playing); only videos that refuse are hidden, and a channel only after repeated refusals.
     // ------------------------------------------------------------------------------------
 
-    private val playPrefs = app.getSharedPreferences("playable", Context.MODE_PRIVATE)
+    private val playPrefs = app.getSharedPreferences("playable2", Context.MODE_PRIVATE)
     /** Videos that refused to play (oldest first), and how often each channel refused. Guarded by badIds. */
     private val badIds = LinkedHashSet<String>()
     private val strikes = HashMap<String, Int>()
@@ -112,7 +117,6 @@ class SongSearch(context: Context) {
 
     fun isPlayable(s: Song): Boolean {
         val ch = channelKey(s.channel)
-        if (NO_EMBED_CHANNELS.any { ch.contains(it) }) return false
         synchronized(badIds) {
             if (s.id in badIds) return false
             return ch.isEmpty() || (strikes[ch] ?: 0) < CHANNEL_STRIKES
@@ -120,13 +124,13 @@ class SongSearch(context: Context) {
     }
 
     /** Remember a video that refused to play; a channel that refuses repeatedly is hidden entirely. */
-    fun markUnplayable(s: Song) {
+    fun markUnplayable(s: Song, strikeChannel: Boolean = true) {
         synchronized(badIds) {
             badIds.remove(s.id)
             badIds.add(s.id)
             while (badIds.size > 400) badIds.remove(badIds.first())
             val ch = channelKey(s.channel)
-            if (ch.isNotEmpty()) strikes[ch] = (strikes[ch] ?: 0) + 1
+            if (strikeChannel && ch.isNotEmpty()) strikes[ch] = (strikes[ch] ?: 0) + 1
             val o = JSONObject()
             strikes.entries.sortedByDescending { it.value }.take(200).forEach { o.put(it.key, it.value) }
             playPrefs.edit().putString("ids", badIds.joinToString(",")).putString("strikes", o.toString()).apply()
@@ -152,7 +156,8 @@ class SongSearch(context: Context) {
         val out = ArrayList<Song>(list.size)
         futures.forEachIndexed { i, f ->
             val code = if (f.isCancelled) 0 else runCatching { f.get() }.getOrDefault(0)
-            if (code == 401 || code == 403) markUnplayable(list[i]) else out += list[i]
+            // 401/403: owner blocks playback outside YouTube. 404: the video is gone.
+            if (code == 401 || code == 403 || code == 404) markUnplayable(list[i], strikeChannel = false) else out += list[i]
         }
         return out.filter(::isPlayable)
     }
@@ -273,10 +278,30 @@ class SongSearch(context: Context) {
                 .put("clientVersion", WEB_CLIENT_VERSION)
                 .put("hl", hl)
                 .put("gl", gl)))
+        val context = body.getJSONObject("context")
+        val first = body
             .put("query", query)
             .put("params", "EgIQAQ%3D%3D")   // filter: videos only
             .toString()
 
+        // Page through the results until enough of them can play here (the biggest karaoke
+        // channels can't, so one page is often nearly empty), at most WEB_PAGES pages.
+        val out = ArrayList<Song>()
+        var request = first
+        for (page in 0 until WEB_PAGES) {
+            val next = arrayOfNulls<String>(1)
+            // Only the first page may fail the search; a later page failing keeps what we have
+            val got = if (page == 0) webPage(request, next) else runCatching { webPage(request, next) }.getOrNull() ?: break
+            out += got
+            if (got.isEmpty() || out.count { isKaraoke(it) && isPlayable(it) } >= WANTED) break
+            val token = next[0] ?: break
+            request = JSONObject().put("context", context).put("continuation", token).toString()
+        }
+        return out
+    }
+
+    /** One page of results; [next] receives the token for the following page. */
+    private fun webPage(body: String, next: Array<String?>): List<Song> {
         val c = (URL("https://www.youtube.com/youtubei/v1/search?prettyPrint=false")
             .openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -291,7 +316,7 @@ class SongSearch(context: Context) {
             c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             if (c.responseCode !in 200..299) throw SearchException("YouTube search is unavailable right now (${c.responseCode})")
             val out = ArrayList<Song>()
-            JsonReader(InputStreamReader(c.inputStream.buffered(), Charsets.UTF_8)).use { r -> walk(r, out, 0) }
+            JsonReader(InputStreamReader(c.inputStream.buffered(), Charsets.UTF_8)).use { r -> walk(r, out, next, 0) }
             return out
         } finally {
             c.disconnect()
@@ -299,7 +324,7 @@ class SongSearch(context: Context) {
     }
 
     /** Walks the JSON and pulls out every "videoRenderer", skipping everything else without storing it. */
-    private fun walk(r: JsonReader, out: MutableList<Song>, depth: Int) {
+    private fun walk(r: JsonReader, out: MutableList<Song>, next: Array<String?>, depth: Int) {
         if (depth > 60 || out.size >= 60) { r.skipValue(); return }
         when (r.peek()) {
             JsonToken.BEGIN_OBJECT -> {
@@ -307,17 +332,28 @@ class SongSearch(context: Context) {
                 while (r.hasNext()) {
                     val name = r.nextName()
                     if (name == "videoRenderer" && r.peek() == JsonToken.BEGIN_OBJECT) readVideo(r)?.let { out += it }
-                    else walk(r, out, depth + 1)
+                    else if (name == "continuationCommand" && r.peek() == JsonToken.BEGIN_OBJECT) readToken(r)?.let { next[0] = it }
+                    else walk(r, out, next, depth + 1)
                 }
                 r.endObject()
             }
             JsonToken.BEGIN_ARRAY -> {
                 r.beginArray()
-                while (r.hasNext()) walk(r, out, depth + 1)
+                while (r.hasNext()) walk(r, out, next, depth + 1)
                 r.endArray()
             }
             else -> r.skipValue()
         }
+    }
+
+    private fun readToken(r: JsonReader): String? {
+        var token: String? = null
+        r.beginObject()
+        while (r.hasNext()) {
+            if (r.nextName() == "token" && r.peek() == JsonToken.STRING) token = r.nextString() else r.skipValue()
+        }
+        r.endObject()
+        return token?.takeIf { it.length in 10..2000 }
     }
 
     private fun readVideo(r: JsonReader): Song? {
@@ -421,10 +457,11 @@ class SongSearch(context: Context) {
             "karaoke", "karaokê", "karaoké", "sing along", "sing-along", "instrumental with lyrics", "videoke",
             "カラオケ", "노래방", "караоке", "καραόκε", "كاريوكي", "คาราโอเกะ", "卡拉ok", "ktv", "伴奏",
         )
-        private val TRUSTED = listOf("zoom karaoke", "stingray karaoke", "karaoke")
-        /** Channels whose videos refuse to play outside YouTube (reported on the Shield). */
-        private val NO_EMBED_CHANNELS = listOf("sing king", "karafun")
+        private val TRUSTED = listOf("sing king", "karafun", "zoom karaoke", "stingray karaoke", "karaoke")
         private const val CHANNEL_STRIKES = 3
+        /** Keyless search reads up to this many pages until it has WANTED playable karaoke videos. */
+        private const val WEB_PAGES = 4
+        private const val WANTED = 24
 
         private val STOP_WORDS = setOf(
             "the", "a", "an", "of", "and", "to", "in", "on", "de", "da", "do", "das", "dos", "e", "o", "os",

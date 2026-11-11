@@ -19,6 +19,51 @@
         android:descendantFocusability="blocksDescendants"
         android:visibility="invisible" />
 
+    <!-- Phones: catches taps on the video (the video itself ignores touches) -->
+    <View
+        android:id="@+id/stageTouch"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <!-- Covers the video while paused and in the last seconds, where YouTube shows suggestions -->
+    <FrameLayout
+        android:id="@+id/stageCurtain"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#F70B0614"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/curtainTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-black"
+                android:gravity="center"
+                android:maxWidth="760dp"
+                android:shadowColor="@color/neon_pink"
+                android:shadowRadius="26"
+                android:textColor="#FFFFFF"
+                android:textSize="48sp" />
+
+            <TextView
+                android:id="@+id/curtainSub"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center"
+                android:textColor="@color/text_dim"
+                android:textSize="20sp" />
+        </LinearLayout>
+    </FrameLayout>
+
     <include
         android:id="@+id/lobby"
         layout="@layout/lobby" />
@@ -77,8 +122,10 @@
         android:background="@drawable/pill_bg"
         android:elevation="8dp"
         android:maxWidth="640dp"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="12dp"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp"
         android:textColor="@color/text_main"
         android:textSize="18sp"
         android:textStyle="bold"

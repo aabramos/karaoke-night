@@ -27,8 +27,8 @@ android {
         applicationId = "com.karaoketv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 5
-        versionName = "3.2"
+        versionCode = 8
+        versionName = "3.5"
         buildConfigField("String", "YOUTUBE_API_KEY", "\"${localProps.getProperty("YOUTUBE_API_KEY", "").trim()}\"")
     }
 
@@ -71,7 +71,9 @@ android {
         resources {
             excludes += listOf(
                 "META-INF/*.version", "META-INF/*.kotlin_module", "META-INF/LICENSE*", "META-INF/NOTICE*",
-                "kotlin/**", "DebugProbesKt.bin", "**/*.kotlin_builtins"
+                "kotlin/**", "DebugProbesKt.bin", "**/*.kotlin_builtins",
+                // build metadata nobody needs on the device
+                "META-INF/version-control-info.textproto", "META-INF/*.kotlin_metadata"
             )
         }
     }

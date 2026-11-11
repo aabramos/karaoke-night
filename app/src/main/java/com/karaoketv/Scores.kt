@@ -78,12 +78,16 @@ class Leaderboard(context: Context) {
     /** Saves the entry and returns its 1-based rank among tonight's scores. */
     @Synchronized
     fun add(entry: Entry): Int {
-        val list = (all() + entry).sortedByDescending { it.score }.take(150).toMutableList()
+        // Keep the best 150 of all time plus everything from tonight, so tonight's board and
+        // the rank below are always complete
+        val since = System.currentTimeMillis() - 12L * 3600_000
+        val everyone = (all() + entry).sortedByDescending { it.score }
+        val list = everyone.filterIndexed { i, e -> i < 150 || e.time >= since }.take(400).toMutableList()
         cached = list
         val arr = JSONArray()
         list.forEach { arr.put(JSONObject().put("n", it.name).put("s", it.score).put("song", it.song.take(100)).put("t", it.time)) }
         prefs.edit().putString("entries", arr.toString()).apply()
-        return top(tonight(), Int.MAX_VALUE).indexOfFirst { it === entry } + 1
+        return (top(tonight(), Int.MAX_VALUE).indexOfFirst { it === entry } + 1).coerceAtLeast(1)
     }
 
     /** Names that have sung recently, most recent first. */

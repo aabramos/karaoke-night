@@ -10,8 +10,10 @@
         android:layout_gravity="end"
         android:background="@drawable/panel_side"
         android:orientation="vertical"
-        android:paddingHorizontal="22dp"
-        android:paddingVertical="22dp">
+        android:paddingStart="22dp"
+        android:paddingEnd="22dp"
+        android:paddingTop="22dp"
+        android:paddingBottom="22dp">
 
         <LinearLayout
             android:id="@+id/panelListMode"
@@ -85,7 +87,8 @@
                 android:inputType="text"
                 android:maxLength="80"
                 android:maxLines="1"
-                android:paddingHorizontal="20dp"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
                 android:textColor="@color/text_main"
                 android:textSize="16sp" />
 

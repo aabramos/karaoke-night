@@ -41,6 +41,8 @@ public final class PartyServer {
 
     private static final int MAX_HEAD = 8 * 1024;
     private static final int MAX_BODY = 2 * 1024;
+    /** A whole request must arrive within this time, however slowly it trickles in. */
+    private static final long REQUEST_DEADLINE_MS = 8_000;
 
     /** Cleared on stop() so a lingering worker thread can never keep the app's screen in memory. */
     private volatile Backend backend;
@@ -123,9 +125,10 @@ public final class PartyServer {
             if (!isLocalNetwork(addr)) { closeQuietly(s); return; }
             String ip = addr.getHostAddress();
 
+            long deadline = System.currentTimeMillis() + REQUEST_DEADLINE_MS;
             InputStream in = s.getInputStream();
             OutputStream out = s.getOutputStream();
-            String head = readHead(in);
+            String head = readHead(in, deadline);
             if (head == null) { send(out, 400, "text/plain", "Bad request"); return; }
 
             String[] lines = head.split("\r\n");
@@ -151,7 +154,7 @@ public final class PartyServer {
             Map<String, String> params = parseForm(query);
 
             if (method.equals("POST") && contentLength > 0) {
-                byte[] body = readFully(in, contentLength);
+                byte[] body = readFully(in, contentLength, deadline);
                 if (body == null) { send(out, 400, "text/plain", "Bad request"); return; }
                 params.putAll(parseForm(new String(body, StandardCharsets.UTF_8)));
             }
@@ -160,6 +163,8 @@ public final class PartyServer {
             if (b == null) { send(out, 503, "text/plain", "The party is paused"); return; }
 
             if (!tokenOk(params.get("k"))) {
+                // Wrong or missing key: allowed now and then (a stale QR code), never as a guessing game
+                if (!allow("x" + ip, 30)) { send(out, 429, "text/plain", "Too many tries"); return; }
                 send(out, 403, "text/html; charset=utf-8",
                         "<meta name=viewport content='width=device-width'><body style='font:20px sans-serif;"
                                 + "background:#0b0614;color:#fff;text-align:center;padding:40px'>"
@@ -221,7 +226,11 @@ public final class PartyServer {
     private boolean allow(String key, int perMinute) {
         long now = System.currentTimeMillis();
         synchronized (hits) {
-            if (hits.size() > 500) hits.clear();
+            if (hits.size() > 500) {
+                // Forget devices that have been quiet for a minute; never reset active limits
+                hits.values().removeIf(d -> d.isEmpty() || now - d.peekLast() > 60_000);
+                if (hits.size() > 500) return false;
+            }
             ArrayDeque<Long> q = hits.get(key);
             if (q == null) { q = new ArrayDeque<>(); hits.put(key, q); }
             while (!q.isEmpty() && now - q.peekFirst() > 60_000) q.pollFirst();
@@ -231,10 +240,11 @@ public final class PartyServer {
         }
     }
 
-    private static String readHead(InputStream in) throws IOException {
+    private static String readHead(InputStream in, long deadline) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream(512);
         int state = 0;
         while (buf.size() < MAX_HEAD) {
+            if (System.currentTimeMillis() > deadline) return null;
             int b = in.read();
             if (b < 0) return null;
             buf.write(b);
@@ -247,10 +257,11 @@ public final class PartyServer {
         return null;
     }
 
-    private static byte[] readFully(InputStream in, int n) throws IOException {
+    private static byte[] readFully(InputStream in, int n, long deadline) throws IOException {
         byte[] b = new byte[n];
         int off = 0;
         while (off < n) {
+            if (System.currentTimeMillis() > deadline) return null;
             int r = in.read(b, off, n - off);
             if (r < 0) return null;
             off += r;

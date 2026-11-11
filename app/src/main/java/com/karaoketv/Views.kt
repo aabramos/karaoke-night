@@ -50,6 +50,7 @@ class StageView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private val beamPath = Path()
     private val beamShaders = arrayOfNulls<Shader>(3)
     private val beamColors = intArrayOf(0xFFFF3DA5.toInt(), 0xFF2EE6FF.toInt(), 0xFFB36BFF.toInt())
+    private val origins = floatArrayOf(0.18f, 0.5f, 0.82f)   // allocated once, not every frame
     private val dots = Array(36) { floatArrayOf(Random.nextFloat(), Random.nextFloat() * 0.75f, Random.nextFloat() * 6.28f, 1f + Random.nextFloat() * 2f) }
     private var start = System.nanoTime()
 
@@ -83,7 +84,6 @@ class StageView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         val t = (System.nanoTime() - start) / 1e9f
 
         // Spotlight beams from the top, sweeping slowly
-        val origins = floatArrayOf(0.18f, 0.5f, 0.82f)
         for (i in 0 until 3) {
             val sweep = sin(t * (0.35f + i * 0.11f) + i * 2.1f) * 28f
             canvas.save()

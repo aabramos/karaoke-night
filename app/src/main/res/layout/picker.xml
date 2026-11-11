@@ -60,7 +60,8 @@
                 android:inputType="textPersonName|textCapWords"
                 android:maxLength="20"
                 android:maxLines="1"
-                android:paddingHorizontal="20dp"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
                 android:textColor="@color/text_main"
                 android:textSize="17sp" />
 

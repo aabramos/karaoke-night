@@ -63,12 +63,66 @@
             android:textSize="38sp" />
 
         <TextView
+            android:id="@+id/imHint"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
             android:text="OK  start now      ▶  later      ↩  lobby"
             android:textColor="@color/text_dim"
             android:textSize="15sp" />
+
+        <!-- Phones: real buttons instead of remote hints -->
+        <LinearLayout
+            android:id="@+id/imTouch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/imStart"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/chip_bg"
+                android:gravity="center"
+                android:minWidth="64dp"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:text="▶ Start now"
+                android:textColor="@color/text_main"
+                android:textSize="18sp" />
+            <TextView
+                android:id="@+id/imLater"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/chip_bg"
+                android:gravity="center"
+                android:minWidth="64dp"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:text="⏭ Later"
+                android:textColor="@color/text_main"
+                android:textSize="18sp" />
+            <TextView
+                android:id="@+id/imLobby"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/chip_bg"
+                android:gravity="center"
+                android:minWidth="64dp"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:text="🏠 Lobby"
+                android:textColor="@color/text_main"
+                android:textSize="18sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <TextView
@@ -78,8 +132,10 @@
         android:layout_gravity="bottom|start"
         android:layout_margin="32dp"
         android:background="@drawable/pill_bg"
-        android:paddingHorizontal="18dp"
-        android:paddingVertical="8dp"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
         android:textColor="@color/text_main"
         android:textSize="15sp" />
 

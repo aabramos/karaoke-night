@@ -47,7 +47,13 @@ object ImageLoader {
             }
         }
         while (queue.size > 40) queue.pollLast()                  // drop the oldest requests
-        if (pool.poolSize < pool.corePoolSize) pool.execute(task) else queue.offerFirst(task)
+        if (pool.poolSize < pool.corePoolSize) {
+            pool.execute(task)
+        } else {
+            queue.offerFirst(task)
+            // An idle worker may have timed out just now: make sure someone picks the task up
+            pool.prestartCoreThread()
+        }
     }
 
     private fun fetch(url: String): Bitmap? = runCatching {

@@ -31,6 +31,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
@@ -79,6 +80,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private lateinit var sheetLayer: View
     private lateinit var qrLayer: View
     private lateinit var countryLayer: View
+    private lateinit var stageTouch: View
+    private lateinit var stageCurtain: View
     private lateinit var toastView: TextView
     private lateinit var confetti: ConfettiView
     private lateinit var lobbyBrowser: SongBrowser
@@ -93,6 +96,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private var duration = 0f
     private var maxSecond = 0f
     private var isPlaying = false
+    /** The last seconds of the song are covered (owners put suggestion tiles there). */
+    private var finale = false
+    /** Really paused (not just loading or buffering). */
+    private var isPaused = false
+    /** Phone or tablet: show buttons instead of remote hints. */
+    private var isTouch = false
     private var volume = 80
 
     // Phones
@@ -161,6 +170,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         sheetLayer = findViewById(R.id.sheetLayer)
         qrLayer = findViewById(R.id.qrLayer)
         countryLayer = findViewById(R.id.countryLayer)
+        stageTouch = findViewById(R.id.stageTouch)
+        stageCurtain = findViewById(R.id.stageCurtain)
         toastView = findViewById(R.id.toast)
         confetti = findViewById(R.id.confetti)
 
@@ -216,6 +227,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             if (actionId == EditorInfo.IME_ACTION_DONE) { confirmPicker(v.text.toString()); true } else false
         }
 
+        setUpTouch()
         updateMusicButton()
         applyCountry()
         updateQr()
@@ -331,6 +343,11 @@ class MainActivity : Activity(), PartyBackend.Listener {
     // Remote control
     // =====================================================================================
 
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        lastInteraction = System.currentTimeMillis()
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
         lastInteraction = System.currentTimeMillis()
         val down = e.action == KeyEvent.ACTION_DOWN
@@ -359,11 +376,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
                     ok || code == KeyEvent.KEYCODE_MEDIA_PLAY || code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
                         if (first) beginSinging()
                     code == KeyEvent.KEYCODE_DPAD_RIGHT -> if (first) singLater()
-                    back -> if (first) {
-                        queue.current?.let { queue.pushFront(it) }
-                        queue.current = null
-                        goLobby()
-                    }
+                    back -> if (first) intermissionToLobby()
                 }
                 return true
             }
@@ -419,7 +432,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         scoreAnim?.cancel()
         queue.current = null
         releasePlayer()
-        stageContainer.visibility = View.INVISIBLE
+        stage(false)
         listOf(hud, queuePanel, intermission, scoreLayer).forEach { it.visibility = View.GONE }
         lobby.visibility = View.VISIBLE
         lobby.alpha = 0f
@@ -602,7 +615,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         mode = Mode.INTERMISSION
         hideAllOverlays()
         listOf(lobby, hud, queuePanel, scoreLayer).forEach { it.visibility = View.GONE }
-        stageContainer.visibility = View.INVISIBLE
+        stage(false)
         stageBg.animating = true
         music.start()
 
@@ -671,13 +684,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
         startWhenReady = false
         mode = Mode.SINGING
         intermission.visibility = View.GONE
-        stageContainer.visibility = View.VISIBLE
+        stage(true)
         stageBg.animating = false
         music.stop()
         duration = 0f
         maxSecond = 0f
         hud.visibility = View.VISIBLE
-        findViewById<View>(R.id.pausedBadge).visibility = View.GONE
         findViewById<TextView>(R.id.nowAvatar).avatar(item.singer)
         findViewById<TextView>(R.id.nowSinger).text = item.singer
         findViewById<TextView>(R.id.nowSong).text = item.song.title
@@ -686,6 +698,99 @@ class MainActivity : Activity(), PartyBackend.Listener {
         songsOnThisPlayer++
         p.setVolume(volume)
         p.loadVideo(item.song.id, 0f)
+    }
+
+    /** Shows or hides the video area (and the tap catcher above it). */
+    private fun stage(on: Boolean) {
+        stageContainer.visibility = if (on) View.VISIBLE else View.INVISIBLE
+        stageTouch.visibility = if (on && isTouch) View.VISIBLE else View.GONE
+        finale = false
+        isPaused = false
+        if (!on) stageCurtain.visibility = View.GONE
+    }
+
+    /**
+     * YouTube shows video suggestions over a paused video and in the last seconds of many videos.
+     * Neither can be switched off, so the video is covered at those moments (the sound continues).
+     */
+    private fun updateCurtain() {
+        val paused = mode == Mode.SINGING && isPaused
+        val show = mode == Mode.SINGING && (paused || finale)
+        val singer = queue.current?.singer.orEmpty()
+        if (show) {
+            findViewById<TextView>(R.id.curtainTitle).text =
+                if (paused) "❚❚  PAUSED" else "🎤 Big finish${if (singer.isNotEmpty()) ", " + singer.uppercase() else ""}!"
+            findViewById<TextView>(R.id.curtainSub).text = when {
+                paused && isTouch -> "Tap to keep singing"
+                paused -> "Press OK to keep singing"
+                else -> "The score is coming…"
+            }
+        }
+        if (show && stageCurtain.visibility != View.VISIBLE) {
+            stageCurtain.alpha = 0f
+            stageCurtain.visibility = View.VISIBLE
+            stageCurtain.animate().alpha(1f).setDuration(if (paused) 150 else 700).start()
+        } else if (!show && stageCurtain.visibility == View.VISIBLE) {
+            stageCurtain.animate().cancel()
+            stageCurtain.visibility = View.GONE
+        }
+    }
+
+    // ---- touch (phones and tablets) ----
+
+    private fun setUpTouch() {
+        isTouch = resources.configuration.touchscreen == android.content.res.Configuration.TOUCHSCREEN_FINGER
+        // Tap anywhere on "Next up" to start; buttons for the other choices
+        intermission.setOnClickListener { if (mode == Mode.INTERMISSION) beginSinging() }
+        click(R.id.imStart) { if (mode == Mode.INTERMISSION) beginSinging() }
+        click(R.id.imLater) { if (mode == Mode.INTERMISSION) singLater() }
+        click(R.id.imLobby) { if (mode == Mode.INTERMISSION) intermissionToLobby() }
+        // Tap the score to move on
+        scoreLayer.setOnClickListener { if (mode == Mode.SCORE && scoreDone) afterSong() }
+        // While singing: tap the video for controls, tap the cover to resume
+        stageTouch.setOnClickListener { onStageTap() }
+        stageCurtain.setOnClickListener { if (mode == Mode.SINGING && isPaused) player?.play() else onStageTap() }
+        click(R.id.tbPause) { togglePause(); showStageInfo() }
+        findViewById<SeekBar>(R.id.tbVolume).apply {
+            progress = volume
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
+                    if (fromUser) setVolumeTo(value, save = false)   // saved once, when the finger lifts
+                }
+                override fun onStartTrackingTouch(bar: SeekBar) { ui.removeCallbacks(hideStageInfoLater) }
+                override fun onStopTrackingTouch(bar: SeekBar) {
+                    setVolumeTo(bar.progress)
+                    showStageInfo()
+                }
+            })
+        }
+        click(R.id.tbQueue) { hideStageInfo.run(); openPanel() }
+        click(R.id.tbMenu) { hideStageInfo.run(); stageMenu() }
+        if (isTouch) {
+            findViewById<View>(R.id.imHint).visibility = View.GONE
+            findViewById<View>(R.id.imTouch).visibility = View.VISIBLE
+            // The touch bar takes the hint's place; the volume meter moves above it
+            findViewById<View>(R.id.stageHint).visibility = View.GONE
+            findViewById<View>(R.id.volumeHud).let { v ->
+                (v.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin = px(104)
+                v.requestLayout()
+            }
+        }
+    }
+
+    private fun onStageTap() {
+        if (mode != Mode.SINGING) return
+        when {
+            queuePanel.isShown -> closePanel()
+            findViewById<View>(R.id.touchBar).isShown -> hideStageInfo.run()
+            else -> showStageInfo()
+        }
+    }
+
+    private fun intermissionToLobby() {
+        queue.current?.let { queue.pushFront(it) }
+        queue.current = null
+        goLobby()
     }
 
     private fun updateNextPill() {
@@ -697,27 +802,36 @@ class MainActivity : Activity(), PartyBackend.Listener {
         findViewById<TextView>(R.id.nextAvatar).avatar(next.singer)
     }
 
-    private val hideStageInfo = Runnable {
+    private val hideStageInfo: Runnable = Runnable {
+        ui.removeCallbacks(hideStageInfoLater)
         listOf(R.id.nowPill, R.id.nextPill, R.id.stageHint).forEach {
             findViewById<View>(it).animate().alpha(0f).setDuration(600).start()
         }
+        // Invisible buttons must not catch taps, so the bar is removed, not just faded
+        findViewById<View>(R.id.touchBar).visibility = View.GONE
     }
+    private val hideStageInfoLater: Runnable = Runnable { hideStageInfo.run() }
 
     private fun showStageInfo() {
-        ui.removeCallbacks(hideStageInfo)
+        ui.removeCallbacks(hideStageInfoLater)
         listOf(R.id.nowPill, R.id.nextPill, R.id.stageHint).forEach {
             findViewById<View>(it).animate().alpha(1f).setDuration(200).start()
         }
-        ui.postDelayed(hideStageInfo, 7000)
+        if (isTouch) findViewById<View>(R.id.touchBar).visibility = View.VISIBLE
+        ui.postDelayed(hideStageInfoLater, 7000)
     }
 
     private val watched: Double
         get() = if (duration > 0f) (maxSecond / duration).toDouble().coerceIn(0.0, 1.0) else 0.0
 
-    private fun changeVolume(delta: Int) {
-        volume = (volume + delta).coerceIn(0, 100)
-        prefs.edit().putInt("music_volume", volume).apply()
+    private fun changeVolume(delta: Int) = setVolumeTo(volume + delta)
+
+    /** Video (backing track) volume, 0-100, separate from the TV's own volume. */
+    private fun setVolumeTo(value: Int, save: Boolean = true) {
+        volume = value.coerceIn(0, 100)
+        if (save) prefs.edit().putInt("music_volume", volume).apply()
         player?.setVolume(volume)
+        findViewById<SeekBar>(R.id.tbVolume).let { if (it.progress != volume) it.progress = volume }
         findViewById<ProgressBar>(R.id.volumeBar).progress = volume
         findViewById<TextView>(R.id.volumeText).text = "$volume%"
         val hudView = findViewById<View>(R.id.volumeHud)
@@ -798,7 +912,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         hideAllOverlays()
         hud.visibility = View.GONE
         queuePanel.visibility = View.GONE
-        stageContainer.visibility = View.INVISIBLE
+        stage(false)
         stageBg.animating = true
 
         findViewById<TextView>(R.id.scAvatar).avatar(item.singer)
@@ -917,8 +1031,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun updateScoreNext() {
         val next = queue.peekNext()
         findViewById<TextView>(R.id.scNext).text =
-            if (next != null) "Next up: ${next.singer}   ·   OK to continue ($autoNextIn)"
-            else "Queue is empty   ·   OK for the lobby ($autoNextIn)"
+            if (next != null) "Next up: ${next.singer}   ·   ${if (isTouch) "Tap" else "OK"} to continue ($autoNextIn)"
+            else "Queue is empty   ·   ${if (isTouch) "Tap" else "OK"} for the lobby ($autoNextIn)"
     }
 
     /** Song finished, skipped or failed: move on to the next singer or back to the lobby. */
@@ -949,7 +1063,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             .ivLoadPolicy(3)   // no annotations
             .ccLoadPolicy(0)   // no captions on top of the lyrics
             .build()
-        v.initialize(playerListener, options)
+        v.initialize(PlayerListener(v), options)
     }
 
     private fun cue(id: String) {
@@ -969,9 +1083,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
         stageContainer.removeView(v)
     }
 
-    private val playerListener = object : AbstractYouTubePlayerListener() {
+    /** One listener per player: events from a player that has since been replaced are ignored. */
+    private inner class PlayerListener(private val view: YouTubePlayerView) : AbstractYouTubePlayerListener() {
+        private val current get() = playerView === view
+
         override fun onReady(youTubePlayer: YouTubePlayer) {
-            if (playerView == null) return
+            if (!current) return
             player = youTubePlayer
             playerReady = true
             youTubePlayer.setVolume(volume)
@@ -980,34 +1097,38 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
 
         override fun onStateChange(youTubePlayer: YouTubePlayer, state: PlayerConstants.PlayerState) {
+            if (!current) return
             isPlaying = state == PlayerConstants.PlayerState.PLAYING
+            isPaused = state == PlayerConstants.PlayerState.PAUSED
             if (mode != Mode.SINGING) {
                 if (isPlaying) youTubePlayer.pause()
                 return
             }
-            val badge = findViewById<View>(R.id.pausedBadge)
             when (state) {
-                PlayerConstants.PlayerState.PLAYING -> {
-                    youTubePlayer.setVolume(volume)
-                    badge.visibility = View.GONE
-                }
-                PlayerConstants.PlayerState.PAUSED -> {
-                    if (!anyOverlayOpen() && !queuePanel.isShown) badge.visibility = View.VISIBLE
-                }
+                PlayerConstants.PlayerState.PLAYING -> youTubePlayer.setVolume(volume)
                 PlayerConstants.PlayerState.ENDED -> showScore(1.0)
                 else -> Unit
             }
+            updateCurtain()
         }
 
         override fun onVideoDuration(youTubePlayer: YouTubePlayer, duration: Float) {
+            if (!current) return
             if (mode == Mode.SINGING && duration > 0f) this@MainActivity.duration = duration
         }
 
         override fun onCurrentSecond(youTubePlayer: YouTubePlayer, second: Float) {
+            if (!current) return
             if (mode == Mode.SINGING && second > maxSecond) maxSecond = second
+            // Cover the last seconds, where video owners place their suggestion tiles
+            if (mode == Mode.SINGING && !finale && duration > 45f && second >= duration - END_COVER_S) {
+                finale = true
+                updateCurtain()
+            }
         }
 
         override fun onError(youTubePlayer: YouTubePlayer, error: PlayerConstants.PlayerError) {
+            if (!current) return
             val item = queue.current ?: return
             if (mode != Mode.INTERMISSION && mode != Mode.SINGING) return
             pendingCue = null
@@ -1036,7 +1157,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         if (mode == Mode.SINGING) {
             mode = Mode.INTERMISSION
             listOf(hud, queuePanel).forEach { it.visibility = View.GONE }
-            stageContainer.visibility = View.INVISIBLE
+            stage(false)
             intermission.visibility = View.VISIBLE
             stageBg.animating = true
             music.start()
@@ -1078,7 +1199,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private fun startServer() {
         if (server != null) return
-        val token = prefs.getString("party_key", null) ?: newToken().also { prefs.edit().putString("party_key", it).apply() }
+        // A new party key after 12 hours (only between parties, so phones already joined keep working):
+        // guests from an old party can't keep adding songs whenever they're on the Wi-Fi.
+        val now = System.currentTimeMillis()
+        val stale = now - prefs.getLong("party_key_time", 0L) > 12 * 3600_000L && queue.isEmpty() && queue.current == null
+        val token = prefs.getString("party_key", null)?.takeIf { !stale }
+            ?: newToken().also { prefs.edit().putString("party_key", it).putLong("party_key_time", now).apply() }
         val page = runCatching { assets.open("remote.html").use { it.readBytes() } }.getOrNull() ?: return
         val s = PartyServer(PartyBackend(queue, search, this), token, page)
         server = s
@@ -1112,7 +1238,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun newToken(): String {
         val alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
         val rnd = SecureRandom()
-        return (1..10).map { alphabet[rnd.nextInt(alphabet.length)] }.joinToString("")
+        return (1..12).map { alphabet[rnd.nextInt(alphabet.length)] }.joinToString("")
     }
 
     private fun updateQr() {
@@ -1455,6 +1581,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         const val RECYCLE_PLAYER_AFTER = 6
         /** How many other versions to try when a video refuses to play. */
         const val MAX_VERSION_TRIES = 2
+        /** Seconds at the end of a song that are covered (suggestion tiles appear there). */
+        const val END_COVER_S = 12f
         val STAGE_NAMES = listOf(
             "Disco Diva", "Rock Legend", "Mystery Voice", "Mic Master", "Golden Voice", "Pop Idol",
             "Shower Singer", "Night Owl", "Velvet Voice", "Funky Star", "Karaoke King", "Karaoke Queen",

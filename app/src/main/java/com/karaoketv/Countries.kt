@@ -88,7 +88,6 @@ object Countries {
     /** The original mix, used for International. */
     val INTERNATIONAL_PICKS = listOf(
         "🔥 Top hits" to "top hits",
-        "🇵🇹 Portuguese" to "músicas portuguesas",
         "💃 Pop" to "pop hits",
         "🎸 Rock" to "rock classics",
         "🕺 80s" to "80s hits",

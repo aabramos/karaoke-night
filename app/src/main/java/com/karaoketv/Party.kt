@@ -24,13 +24,15 @@ data class QueueItem(
     }
 }
 
+private const val BIDI_MARKS = "\u200E\u200F\u061C\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069"
 private val VIDEO_ID = Regex("^[A-Za-z0-9_-]{11}$")
 fun isVideoId(s: String?) = s != null && VIDEO_ID.matches(s)
 
 /** Trims a singer name, removes control characters and caps the length. Null if empty. */
 fun cleanName(raw: String?): String? {
     if (raw == null) return null
-    val s = raw.filter { !it.isISOControl() && it != '‮' && it != '‭' }.trim().replace(Regex("\\s+"), " ")
+    // Control characters and invisible text-direction marks (which could make a name display reversed)
+    val s = raw.filter { !it.isISOControl() && it !in BIDI_MARKS }.trim().replace(Regex("\\s+"), " ")
     return s.take(20).ifEmpty { null }
 }
 

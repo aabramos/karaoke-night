@@ -13,7 +13,8 @@
         android:background="@drawable/pill_bg"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingVertical="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
         android:paddingStart="8dp"
         android:paddingEnd="22dp">
 
@@ -62,7 +63,8 @@
         android:background="@drawable/pill_bg"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingVertical="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
         android:paddingStart="18dp"
         android:paddingEnd="8dp">
 
@@ -100,11 +102,96 @@
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="24dp"
         android:background="@drawable/pill_bg"
-        android:paddingHorizontal="18dp"
-        android:paddingVertical="8dp"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
         android:text="◀ ▶ music volume    OK pause    ▼ queue    ↩ menu"
         android:textColor="@color/text_dim"
         android:textSize="14sp" />
+
+    <!-- Phones: shown when the video is tapped -->
+    <LinearLayout
+        android:id="@+id/touchBar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="20dp"
+        android:background="@drawable/pill_bg"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tbPause"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/chip_bg"
+            android:gravity="center"
+            android:minWidth="64dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:text="⏯"
+            android:textColor="@color/text_main"
+            android:textSize="18sp" />
+        <!-- Drag to set the music volume (the singers' microphones aren't affected) -->
+        <LinearLayout
+            android:id="@+id/tbVolumeBox"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/chip_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingEnd="6dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🎵"
+                android:textSize="18sp" />
+
+            <SeekBar
+                android:id="@+id/tbVolume"
+                android:layout_width="220dp"
+                android:layout_height="40dp"
+                android:max="100"
+                android:progressDrawable="@drawable/volume_track"
+                android:thumbTint="@color/neon_pink" />
+        </LinearLayout>
+        <TextView
+            android:id="@+id/tbQueue"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/chip_bg"
+            android:gravity="center"
+            android:minWidth="64dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:text="📋 Queue"
+            android:textColor="@color/text_main"
+            android:textSize="18sp" />
+        <TextView
+            android:id="@+id/tbMenu"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/chip_bg"
+            android:gravity="center"
+            android:minWidth="64dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:text="☰ Menu"
+            android:textColor="@color/text_main"
+            android:textSize="18sp" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/volumeHud"
@@ -116,8 +203,10 @@
         android:background="@drawable/pill_bg"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingHorizontal="22dp"
-        android:paddingVertical="14dp">
+        android:paddingStart="22dp"
+        android:paddingEnd="22dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -130,7 +219,8 @@
             style="@android:style/Widget.Material.ProgressBar.Horizontal"
             android:layout_width="0dp"
             android:layout_height="12dp"
-            android:layout_marginHorizontal="14dp"
+            android:layout_marginStart="14dp"
+            android:layout_marginEnd="14dp"
             android:layout_weight="1"
             android:max="100"
             android:progressDrawable="@drawable/volume_track" />
@@ -144,18 +234,4 @@
             android:textSize="18sp"
             android:textStyle="bold" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/pausedBadge"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:background="@drawable/pill_bg"
-        android:paddingHorizontal="36dp"
-        android:paddingVertical="16dp"
-        android:text="❚❚  PAUSED"
-        android:textColor="@color/text_main"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
 </FrameLayout>
