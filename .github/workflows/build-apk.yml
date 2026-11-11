@@ -17,9 +17,9 @@ permissions:
 
 jobs:
   build:
-    # Pinned to the image this build is known to work on. ubuntu-latest moves to Ubuntu 26.04
-    # (Oct-Nov 2026); change this line to try it, the SDK step below copes with either.
-    runs-on: ubuntu-24.04
+    # GitHub's default machine (Ubuntu 24.04 or 26.04 during the 2026 switch). The SDK step below
+    # works on either: it downloads Google's Android tools if a machine doesn't have them.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
