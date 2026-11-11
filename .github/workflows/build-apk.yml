@@ -60,7 +60,7 @@ jobs:
           ./gradlew --no-daemon assembleRelease
           cp app/build/outputs/apk/release/app-release.apk KaraokeNight.apk
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: KaraokeNight-apk
           path: KaraokeNight.apk
