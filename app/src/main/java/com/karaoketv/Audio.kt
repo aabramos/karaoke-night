@@ -12,6 +12,14 @@ import android.media.SoundPool
  * way, it falls back to Android's MediaPlayer.
  */
 class LobbyMusic(context: Context) {
+    companion object {
+        /**
+         * Fixed, very quiet background level (about -23 dB): enough to fill the silence between
+         * songs, never loud enough to annoy anyone. Deliberately not adjustable from the app.
+         */
+        const val LEVEL = 0.07f
+    }
+
     private val context = context.applicationContext   // never hold on to the screen
     private var loop: SeamlessLoop? = null
     private var fallback: MediaPlayer? = null
@@ -27,8 +35,9 @@ class LobbyMusic(context: Context) {
             if (v) start() else stop()
         }
 
-    /** Fade in to [target] volume (0-1). The lobby default is deliberately low. */
-    fun start(target: Float = LOBBY_VOLUME) {
+    /** Fade in over [fadeMs], always to the same very low level (it never follows the volume slider). */
+    fun start(fadeMs: Long = 1200) {
+        val target = LEVEL
         if (!enabled) return
         val fb = fallback
         if (fb != null) {
@@ -41,7 +50,7 @@ class LobbyMusic(context: Context) {
             l.setVolume(level)
             l.play()
         }
-        fadeTo(target, 1200) {}
+        fadeTo(target, fadeMs) {}
     }
 
     private fun useFallback() {
@@ -96,9 +105,6 @@ class LobbyMusic(context: Context) {
         }
     }
 
-    companion object {
-        const val LOBBY_VOLUME = 0.32f
-    }
 }
 
 /**
@@ -312,6 +318,9 @@ class Sfx(screen: Context) {
                 .build()
         ).build()
 
+    /** The party's one volume (0-1); each sound's own level is relative to it. */
+    var master: Float = 1f
+
     private val loaded = HashSet<Int>()
     private val pending = HashMap<Int, Float>()
     private val streams = HashMap<Int, Int>()
@@ -332,7 +341,8 @@ class Sfx(screen: Context) {
         }
     }
 
-    fun play(sound: Int, volume: Float = 1f) {
+    fun play(sound: Int, level: Float = 1f) {
+        val volume = (level * master).coerceIn(0f, 1f)
         if (sound in loaded) {
             streams[sound] = pool.play(sound, volume, volume, 1, 0, 1f)
         } else {

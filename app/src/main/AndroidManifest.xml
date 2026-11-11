@@ -4,6 +4,19 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Only to find the TV's local address for the phone QR code -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Voice search only: asked the first time 🎙 is pressed, never recorded or sent anywhere else -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- Android 11+ only lets the app see the speech recognizer if it says it needs it -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
 
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />

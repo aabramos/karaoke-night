@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One volume for songs, countdown and score sounds (the lobby music has its own fixed, very low level) -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/scrim"
+    android:clickable="true">
+
+    <LinearLayout
+        android:layout_width="560dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/panel_bg"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="26dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-black"
+            android:text="🔊 VOLUME"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center"
+            android:text="Songs and sound effects play at this level. The lobby music always\nplays very quietly. The TV's own volume and the microphones are separate."
+            android:textColor="@color/text_dim"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/volumeValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:fontFamily="sans-serif-black"
+            android:shadowColor="@color/neon_pink"
+            android:shadowRadius="18"
+            android:textColor="#FFFFFF"
+            android:textSize="44sp" />
+
+        <!-- Focusable: the remote's ◀ ▶ move it; on phones it's dragged -->
+        <SeekBar
+            android:id="@+id/volumeSlider"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/chip_bg"
+            android:focusable="true"
+            android:max="100"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:progressDrawable="@drawable/volume_track"
+            android:thumbTint="@color/neon_pink" />
+
+        <TextView
+            android:id="@+id/volumeHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="◀ ▶ to change"
+            android:textColor="@color/text_dim"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/volumeMusic"
+                style="@style/TvButton" />
+
+            <TextView
+                android:id="@+id/volumeDone"
+                style="@style/TvButton.Primary"
+                android:layout_marginStart="12dp"
+                android:text="Done" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

@@ -36,7 +36,11 @@ public final class PartyServer {
         /** JSON object with "now" and "queue". */
         String stateJson();
         /** Adds a song; returns null on success or a short message for the guest. */
-        String add(String videoId, String singer);
+        /** [partner]: second singer for a duet, or null/empty for a solo. */
+        String add(String videoId, String singer, String partner);
+
+        /** Removes a player and their scores; returns an error message or null. */
+        String removePlayer(String name);
     }
 
     private static final int MAX_HEAD = 8 * 1024;
@@ -193,7 +197,15 @@ public final class PartyServer {
                 if (!allow("a" + ip, 8)) {
                     send(out, 429, "application/json", "{\"error\":\"Too many songs at once! Wait a minute.\"}");
                 } else {
-                    String err = b.add(params.get("id"), params.get("singer"));
+                    String err = b.add(params.get("id"), params.get("singer"), params.get("partner"));
+                    send(out, err == null ? 200 : 400, "application/json; charset=utf-8",
+                            err == null ? "{\"ok\":true}" : "{\"error\":" + jsonString(err) + "}");
+                }
+            } else if (method.equals("POST") && path.equals("/api/players/remove")) {
+                if (!allow("r" + ip, 6)) {
+                    send(out, 429, "application/json", "{\"error\":\"Too many changes at once! Wait a minute.\"}");
+                } else {
+                    String err = b.removePlayer(params.get("name"));
                     send(out, err == null ? 200 : 400, "application/json; charset=utf-8",
                             err == null ? "{\"ok\":true}" : "{\"error\":" + jsonString(err) + "}");
                 }

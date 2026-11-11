@@ -9,18 +9,23 @@ A karaoke app for the big screen, built for parties:
   search for that country and language. Guests' phones follow automatically
 - **Song queue** with singer names. Songs play one after another with a **"Next up: MARIA!"** countdown in between
 - **Guests add songs from their phones** by scanning the QR code on the TV, **without interrupting the current singer**
-- **Quiet lobby music** while people choose songs; it fades out when a song starts and back in afterwards
-- **Music volume on the remote** (◀ ▶), separate from the TV volume, to balance the backing track against your mics
+- **Very quiet lobby music** while people choose songs; it fades out when a song starts and back in afterwards
+- **One volume for songs and sound effects**, separate from the TV volume, to balance the music against
+  your mics: the 🎵 button in the lobby, ◀ ▶ during a song, or a slider on phones
+- **Lobby music** always plays very quietly in the background (it can be switched off, not turned up)
+- **Duets**: pick two singers for one song (on the TV or a phone); duets have their own ranking
+- **Players list**: everyone who has sung is one tap away on the TV and on guests' phones; a player can be
+  removed (with a confirmation), which also removes their scores from the hall of fame
 - **The judge**: drumroll, count-up, stars, a verdict, applause, and confetti + fanfare for 95+
-- **Hall of fame**: podium and top 10 for tonight and all time. Scores are saved automatically under each singer's name
+- **Hall of fame**: podium and top 8 for tonight, all time and duets. Scores are saved automatically under each singer's name
 - **Works without a YouTube API key** (optional key for extra reliability, see below)
 - **Never stalls on a blocked video**: if a video's owner blocks playback outside YouTube, the app
   finds another karaoke version of the same song for the same singer
 - Made for the TV, and also runs full screen on Android phones and tablets
 
-> The score is just for fun: it doesn't listen to the singer. Most scores land between ~78 and ~92,
-> 95+ happens about 1 song in 20, and a perfect 100 is very rare. Stopping a song early lowers the
-> score; stopping in the first quarter gives none.
+> The score is just for fun: it doesn't listen to the singer. Scores are always between 60 and 100;
+> most land in the 70s and 80s, 90+ is a treat and a perfect 100 is rare. Stopping a song early gives a
+> lower score; stopping in the first quarter gives none.
 
 ---
 
@@ -39,7 +44,9 @@ That's it. The queue is saved, so if someone exits the app by accident, everythi
 2. Press **▶ START** (or just wait: if songs are queued and nobody touches the remote for 30 s, the party starts by itself).
 3. **Next up**: the singer's name appears with a 10-second countdown while the video loads.
 4. **Singing**: full-screen video. Press **▼** to open the queue panel on the right and add songs while the song keeps playing.
-5. **Score**: drumroll, score, rank of the night, then straight on to the next singer.
+5. **Big finish**: in the last second of the song, a "🎤 Big finish!" screen for 5 seconds.
+6. **Score**: drumroll, score, rank of the night; 5 seconds later the lobby music fades back in, then
+   it's on to the next singer.
 
 ## Remote controls
 
@@ -49,7 +56,9 @@ That's it. The queue is saved, so if someone exits the app by accident, everythi
 | Lobby | 🎙 button (or the remote's search button) | Voice search: say a song or artist |
 | Lobby | QR card → OK | Big join code for guests' phones |
 | Lobby | 🌍 / flag button | Party country: every country, type a few letters to find one |
-| Lobby | 🏆 / 🎵 buttons | Hall of fame / lobby music on-off |
+| Lobby | 🏆 button | Hall of fame: tonight, all time, duets |
+| Lobby | 🎵 button | Volume for songs and sound effects (◀ ▶), lobby music on/off |
+| Who's singing? | 👫 Duet / 🎲 / 🗑 | Two singers / surprise name / remove a player (asks first). BACK steps back |
 | Lobby | BACK twice | Exit the app |
 | Next up | OK | Start now |
 | Next up | ▶ | "Not ready": move this singer to the end of the queue |
@@ -68,7 +77,9 @@ The phone's Back gesture does what BACK does on the remote.
 
 ## Guests' phones
 
-The TV runs a tiny web page for the party. Guests scan the QR code, type their name once, search, and tap **+**.
+The TV runs a tiny web page for the party. Guests scan the QR code, tap their name in the players list (or
+type it once), search, and tap **+**. For a duet, fill in **Duet partner** too (tap a name while that box
+is selected). **Edit** under the players list removes a player, after a confirmation.
 Their phones also show who's singing and the queue, updated live.
 
 - Phones must be on the **same Wi-Fi** as the Shield. Guest networks often block devices from seeing each
@@ -78,6 +89,8 @@ Their phones also show who's singing and the queue, updated live.
   between parties, so phones that already joined keep working). Phones can only add songs that came out
   of the karaoke search. There are limits on request size and time, on how many songs or searches one
   phone can make per minute, and at most 3 queued songs per singer.
+- Anyone who joined the party can remove a player (with a confirmation, at most 6 a minute per phone).
+  That's convenient between friends; if it ever gets abused, the 12-hour key change locks old guests out.
 
 ## Searching: with or without a YouTube API key
 
@@ -183,22 +196,27 @@ It appears in the Shield's app row as **Karaoke Night**.
 
 | What | Where |
 |---|---|
+| Score range (60-100) | `Scores.kt` → `Judge` |
 | Quick picks | `Countries.kt`: `INTERNATIONAL_PICKS`, and `HAND` for a country's own picks (phones get the same ones) |
 | How generous the judge is | `Scores.kt`: `85 + 6 * rng.nextGaussian()`: raise 85 for higher scores, raise 6 for more spread |
 | Judge comments | `Scores.kt` → `lines` |
-| Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops from end to start without a gap); volume in `Audio.kt` → `LOBBY_VOLUME` |
+| Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops from end to start without a gap); its fixed level is `Audio.kt` → `LobbyMusic.LEVEL` |
 | Autostart delay | `MainActivity.kt` → `AUTOSTART_MS` (30 s) |
 | Surprise stage names | `MainActivity.kt` → `STAGE_NAMES` |
 | Fresh player every N songs | `MainActivity.kt` → `RECYCLE_PLAYER_AFTER` |
 | Max songs per singer | `Party.kt` → `MAX_PER_SINGER` |
-| Covered seconds at the end of a song | `MainActivity.kt` → `END_COVER_S` |
+| "Big finish" timing / lobby music after the score | `MainActivity.kt` → `FINALE_LEAD_S`, `FINALE_MS`, `SCORE_MUSIC_DELAY_MS` |
 
 ## Troubleshooting
 
 - **The app stopped**: open it again. It shows what went wrong instead of the party; take a photo of
   that screen to get it fixed, then press **Try again**.
 - **No QR code / "Connect the TV to your home network"**: the Shield isn't connected to Wi-Fi or Ethernet.
-- **🎙 says voice search isn't available**: type instead; the remote's own microphone button opens Google Assistant, not this app.
+- **🎙 voice search**: the first time, Android asks to allow the microphone (say yes). Then press 🎙 and
+  speak: the words appear in the search box. Press 🎙 again to stop. The remote's own microphone button
+  opens Google Assistant instead, not this app.
+- **Subtitles on a video**: the app switches YouTube's captions off when a song starts. Subtitles that
+  are part of the video picture itself (burned in) can't be removed.
 - **Phone says "Scan the QR code on the TV"**: scan again; the link includes the party key.
 - **"YouTube search is unavailable"** without a key: YouTube changed something. Add an API key (above).
 - **A video doesn't play**: some owners block playback outside YouTube, and no app can get around
@@ -209,10 +227,9 @@ It appears in the Shield's app row as **Karaoke Night**.
   moves on), and remembers the refusal so that video no longer shows up. A channel whose videos refuse
   three times is hidden. To forget all of this, clear the app's storage in Android's app settings.
 - **Ads**: YouTube may show ads before some videos, as in any app using YouTube's official player.
-- **Video suggestions**: YouTube shows suggestion tiles over a paused video and in the last seconds of
-  many videos, and no app can switch them off. Karaoke Night covers the video at those moments: while
-  paused, and during the last 12 seconds (the music keeps playing). Change the seconds in
-  `MainActivity.kt` → `END_COVER_S`.
+- **Video suggestions**: YouTube shows suggestions over a paused video and when a video ends, and no app
+  can switch them off. Karaoke Night covers a paused video, and in the last second of every song a
+  "🎤 Big finish!" screen takes over for 5 seconds (press OK or tap to skip), then the score.
 
 ---
 

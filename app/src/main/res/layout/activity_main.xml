@@ -113,6 +113,11 @@
         layout="@layout/country"
         android:visibility="gone" />
 
+    <include
+        android:id="@+id/volumeLayer"
+        layout="@layout/volume"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/toast"
         android:layout_width="wrap_content"

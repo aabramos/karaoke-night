@@ -20,6 +20,7 @@ h2{font-size:13px;letter-spacing:.2em;color:var(--cyan);margin:22px 0 8px}
 .now small{color:var(--dim)}
 input{width:100%;background:var(--card2);border:2px solid var(--line);color:#fff;border-radius:999px;padding:12px 18px;font-size:16px;outline:none}
 input:focus{border-color:var(--cyan)}
+.partner{margin-top:8px}
 .row{display:flex;gap:8px}
 .btn{border:0;border-radius:999px;background:var(--pink);color:#fff;font-weight:800;padding:0 18px;font-size:16px;min-height:46px}
 .btn:active{transform:scale(.96)}
@@ -43,6 +44,18 @@ input:focus{border-color:var(--cyan)}
 .muted{color:var(--dim);text-align:center;padding:10px}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(120px);background:#fff;color:#0b0614;font-weight:800;padding:12px 20px;border-radius:999px;transition:transform .3s;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:90vw;text-align:center}
 #toast.show{transform:translateX(-50%) translateY(0)}
+.players{display:flex;flex-wrap:wrap;gap:8px;padding:10px 0 0}
+.players .chip.on{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan) inset}
+.players.edit .chip{border-color:#ff5a6e;color:#ffc2ca}
+.phint{display:flex;justify-content:space-between;align-items:center;color:var(--dim);font-size:13px;padding:6px 4px 0}
+.link{background:none;border:0;color:var(--cyan);font-size:13px;font-weight:700;padding:6px 0}
+#modal{position:fixed;inset:0;background:rgba(5,2,12,.78);display:none;align-items:center;justify-content:center;padding:20px;z-index:5}
+#modal.show{display:flex}
+#modal .box{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:20px;max-width:340px;text-align:center}
+#modal b{font-size:20px;display:block;margin-bottom:8px}
+#modal p{color:var(--dim);margin:0 0 16px;font-size:14px}
+#modal .row{justify-content:center}
+.btn.ghost{background:var(--card2);border:1px solid var(--line)}
 .spin{display:inline-block;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
 </style>
 </head>
@@ -53,6 +66,11 @@ input:focus{border-color:var(--cyan)}
 
 <h2>YOUR NAME</h2>
 <input id="name" maxlength="20" placeholder="Who's singing?" autocomplete="nickname">
+<input id="partner" class="partner" maxlength="20" placeholder="👫 Duet partner (optional)" autocomplete="off">
+<div class="players" id="players"></div>
+<div class="phint" id="phint" hidden><span id="phintText">Tap a name to fill the box above</span><button class="link" id="editPlayers" type="button">Edit</button></div>
+<div id="modal" role="dialog" aria-modal="true"><div class="box"><b id="modalTitle"></b><p id="modalText"></p>
+  <div class="row"><button class="btn ghost" id="modalKeep" type="button">Keep</button><button class="btn" id="modalRemove" type="button">🗑 Remove</button></div></div></div>
 
 <h2 id="findTitle">FIND A SONG</h2>
 <form class="row" id="sf"><input id="q" maxlength="80" placeholder="Song or artist…" enterkeyhint="search"><button class="btn">Go</button></form>
@@ -74,6 +92,61 @@ input:focus{border-color:var(--cyan)}
   var nameEl = $('name');
   try { nameEl.value = localStorage.getItem('singer') || ''; } catch(e) {}
   nameEl.addEventListener('input', function(){ try { localStorage.setItem('singer', nameEl.value.trim()); } catch(e) {} });
+
+  // ---- registered players: tap to fill a name; Edit to remove (with a confirmation) ----
+  var partnerEl = $('partner');
+  var target = nameEl;                       // the box a tapped name goes into: the last one used
+  nameEl.addEventListener('focus', function(){ target = nameEl; });
+  partnerEl.addEventListener('focus', function(){ target = partnerEl; });
+  var players = [], playersKey = '', editing = false;
+
+  function renderPlayers(){
+    var box = $('players'); box.textContent = '';
+    box.classList.toggle('edit', editing);
+    $('phint').hidden = players.length === 0;
+    $('phintText').textContent = editing ? 'Tap a name to remove it' : 'Tap a name to fill the box above';
+    $('editPlayers').textContent = editing ? 'Done' : 'Edit';
+    players.forEach(function(name){
+      var c = el('button', 'chip', editing ? '✕ ' + name : name);
+      c.type = 'button';
+      if (!editing && (nameEl.value.trim().toLowerCase() === name.toLowerCase() ||
+                       partnerEl.value.trim().toLowerCase() === name.toLowerCase())) c.classList.add('on');
+      c.onclick = function(){
+        if (editing) { askRemove(name); return; }
+        target.value = name;
+        if (target === nameEl) { try { localStorage.setItem('singer', name); } catch(e) {} }
+        renderPlayers();
+      };
+      box.appendChild(c);
+    });
+  }
+  $('editPlayers').onclick = function(){ editing = !editing; renderPlayers(); };
+  partnerEl.addEventListener('input', renderPlayers);
+  nameEl.addEventListener('input', renderPlayers);
+
+  var pending = null;
+  function askRemove(name){
+    pending = name;
+    $('modalTitle').textContent = 'Remove ' + name + '?';
+    $('modalText').textContent = name + ' and all their scores (solo and duets) will be deleted from the hall of fame. This can\'t be undone.';
+    $('modal').classList.add('show');
+  }
+  function closeModal(){ pending = null; $('modal').classList.remove('show'); }
+  $('modalKeep').onclick = closeModal;
+  $('modal').onclick = function(e){ if (e.target === $('modal')) closeModal(); };
+  $('modalRemove').onclick = function(){
+    var name = pending; if (!name) return;
+    var b = $('modalRemove'); b.disabled = true;
+    api('/api/players/remove', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'name=' + encodeURIComponent(name) })
+      .then(function(){
+        toast('🗑 ' + name + ' removed');
+        players = players.filter(function(p){ return p.toLowerCase() !== name.toLowerCase(); });
+        renderPlayers(); refresh();
+      })
+      .catch(function(e){ toast(e.message); })
+      .then(function(){ b.disabled = false; closeModal(); });
+  };
 
   function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function color(s){ var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return COLORS[Math.abs(h) % COLORS.length]; }
@@ -120,16 +193,24 @@ input:focus{border-color:var(--cyan)}
 
   function add(v, btn){
     var singer = nameEl.value.trim();
+    var partner = $('partner').value.trim();
     if (!singer) { toast('Type your name first 👆'); nameEl.focus(); window.scrollTo({top:0,behavior:'smooth'}); return; }
     btn.disabled = true;
     api('/api/add', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:'id=' + encodeURIComponent(v.id) + '&singer=' + encodeURIComponent(singer) })
-      .then(function(){ btn.textContent = '✓'; btn.classList.add('done'); toast('🎉 Added! Get ready, ' + singer + '!'); refresh(); })
+      body:'id=' + encodeURIComponent(v.id) + '&singer=' + encodeURIComponent(singer) + '&partner=' + encodeURIComponent(partner) })
+      .then(function(){
+        btn.textContent = '✓'; btn.classList.add('done');
+        toast('🎉 Added! Get ready, ' + singer + (partner ? ' & ' + partner : '') + '!');
+        $('partner').value = '';   // the next song is a solo unless a partner is typed again
+        refresh(); })
       .catch(function(e){ btn.disabled = false; toast(e.message); });
   }
 
   function refresh(){
     api('/api/state').then(function(s){
+      var list = Array.isArray(s.players) ? s.players.filter(function(p){ return typeof p === 'string'; }).slice(0, 60) : [];
+      var key = JSON.stringify(list);
+      if (key !== playersKey) { playersKey = key; players = list; renderPlayers(); }
       var c = s.country || {};
       if (s.picks && c.code !== region) {
         region = c.code;

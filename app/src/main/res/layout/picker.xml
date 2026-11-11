@@ -15,9 +15,11 @@
         android:padding="26dp">
 
         <TextView
+            android:id="@+id/pickerTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="sans-serif-black"
+            android:gravity="center"
             android:text="🎤 WHO'S SINGING?"
             android:textColor="#FFFFFF"
             android:textSize="28sp" />
@@ -42,6 +44,7 @@
             android:orientation="vertical" />
 
         <LinearLayout
+            android:id="@+id/pickerInputRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
