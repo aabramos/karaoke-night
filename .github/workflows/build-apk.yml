@@ -17,7 +17,9 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pinned to the image this build is known to work on. ubuntu-latest moves to Ubuntu 26.04
+    # (Oct-Nov 2026); change this line to try it, the SDK step below copes with either.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -26,12 +28,24 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # GitHub's runner already has the Android SDK. We only accept licenses and add what the app needs
-      # (the old android-actions/setup-android action fails on the removed "tools" package).
+      # GitHub's runner usually has the Android SDK already; if an image ever doesn't, the official
+      # command-line tools are downloaded from Google. Then: accept licenses, add what the app needs.
+      # (The old android-actions/setup-android action fails on the removed "tools" package.)
       - name: Prepare Android SDK
         run: |
-          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          [ -x "$SDKM" ] || SDKM="$(ls -d $ANDROID_HOME/cmdline-tools/*/bin/sdkmanager | head -n1)"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/android-sdk}}"
+          SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] || SDKM="$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n1)"
+          if [ ! -x "$SDKM" ]; then
+            echo "No Android SDK on this runner image: downloading the command-line tools"
+            mkdir -p "$SDK/cmdline-tools"
+            curl -sSfL -o "$RUNNER_TEMP/cmdline-tools.zip" https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$RUNNER_TEMP/clt"
+            mv "$RUNNER_TEMP/clt/cmdline-tools" "$SDK/cmdline-tools/latest"
+            SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
