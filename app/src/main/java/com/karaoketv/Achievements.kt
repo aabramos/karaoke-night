@@ -14,12 +14,13 @@ data class Achievement(val id: String, val icon: String, val title: String, val 
 data class SingerRecord(val name: String, val songs: Int, val best: Int?, val unlocked: Map<String, Long>, val lastNight: Long)
 
 object Achievements {
-    val ALL = listOf(
+    /** The main achievements. Score ones say "points" in their name, so nobody reads "90" as the 1990s. */
+    val MAIN = listOf(
         Achievement("first", "🎤", "First song", "Sing your first song"),
-        Achievement("s85", "🌟", "Rising star", "Score 85 or more"),
-        Achievement("s90", "💎", "90 club", "Score 90 or more"),
-        Achievement("s95", "🏅", "Showstopper", "Score 95 or more"),
-        Achievement("s100", "💯", "Perfection", "Score a perfect 100"),
+        Achievement("s85", "🌟", "85 points", "Score 85 points or more"),
+        Achievement("s90", "💎", "90 points", "Score 90 points or more"),
+        Achievement("s95", "🏅", "95 points", "Score 95 points or more"),
+        Achievement("s100", "💯", "Perfect 100", "Score a perfect 100 points"),
         Achievement("champ", "👑", "Champion", "Top the night's board (3+ singers)"),
         Achievement("pb", "📈", "Getting better", "Beat your own best score"),
         Achievement("comeback", "🚀", "Comeback", "85+ right after a score under 75"),
@@ -33,6 +34,10 @@ object Achievements {
         Achievement("legend", "🏆", "Legend", "Sing 50 songs"),
         Achievement("nights", "🎉", "Party animal", "Sing at 3 different parties"),
     )
+    /** One per genre: the first time someone sings it (see [Genres]). */
+    val GENRES = Genres.ALL.map { Achievement(genreId(it.id), it.icon, it.title, it.how) }
+    val ALL = MAIN + GENRES
+    fun genreId(genre: String) = "g_$genre"
     private val byId = ALL.associateBy { it.id }
     fun get(id: String) = byId[id]
 
@@ -44,7 +49,7 @@ object Achievements {
      */
     fun earnedBy(
         entry: Entry, mineBefore: List<Entry>, bestSoloBefore: Int?, songsAfter: Int, nightsAfter: Int,
-        rank: Int, soloSingersTonight: Int, hour: Int,
+        rank: Int, soloSingersTonight: Int, hour: Int, genres: List<String> = emptyList(),
     ): Set<String> {
         val ids = LinkedHashSet<String>()
         val s = entry.score
@@ -68,6 +73,7 @@ object Achievements {
         if (songsAfter >= 10) ids += "regular"
         if (songsAfter >= 50) ids += "legend"
         if (nightsAfter >= 3) ids += "nights"
+        genres.forEach { g -> if (Genres.get(g) != null) ids += genreId(g) }
         return ids
     }
 
@@ -146,7 +152,8 @@ class AchievementBook(context: Context) {
      * [before]: the leaderboard before this entry was added.
      */
     @Synchronized
-    fun record(entry: Entry, before: List<Entry>, rank: Int, hour: Int, persist: Boolean = true): List<Pair<String, Achievement>> {
+    fun record(entry: Entry, before: List<Entry>, rank: Int, hour: Int, genres: List<String> = emptyList(),
+               persist: Boolean = true): List<Pair<String, Achievement>> {
         val out = ArrayList<Pair<String, Achievement>>()
         val since = entry.time - Achievements.NIGHT_MS
         val soloTonight = (before.filter { !it.duet && it.time >= since }.map { it.name.lowercase() } +
@@ -159,7 +166,7 @@ class AchievementBook(context: Context) {
             r.songs++
             if (r.lastNight != night) { r.lastNight = night; r.nights++ }
             val mine = before.filter { Achievements.involves(it, person) }
-            val ids = Achievements.earnedBy(entry, mine, r.best.takeIf { it >= 0 }, r.songs, r.nights, rank, soloTonight, hour)
+            val ids = Achievements.earnedBy(entry, mine, r.best.takeIf { it >= 0 }, r.songs, r.nights, rank, soloTonight, hour, genres)
             if (!entry.duet && entry.score > r.best) r.best = entry.score
             ids.forEach { id ->
                 if (id !in r.unlocked) {
@@ -198,11 +205,34 @@ class AchievementBook(context: Context) {
         val cal = java.util.Calendar.getInstance()
         entries.sortedBy { it.time }.forEach { e ->
             cal.timeInMillis = e.time
-            record(e, done, rank = 0, hour = cal.get(java.util.Calendar.HOUR_OF_DAY), persist = false)
+            record(e, done, rank = 0, hour = cal.get(java.util.Calendar.HOUR_OF_DAY), genres = Genres.detect(e.song, null), persist = false)
             done += e
         }
         save()
         prefs.edit().putBoolean("backfilled", true).apply()
+    }
+
+    /**
+     * Once, when genre achievements first appear (3.16): awards them for the songs already in the
+     * saved scores, dated to the party they were sung at.
+     */
+    @Synchronized
+    fun backfillGenres(entries: List<Entry>) {
+        if (prefs.getBoolean("genres1", false)) return
+        var changed = false
+        entries.sortedBy { it.time }.forEach { e ->
+            val genres = Genres.detect(e.song, null)
+            if (genres.isEmpty()) return@forEach
+            Achievements.people(e).forEach { person ->
+                val r = recs()[person.lowercase()] ?: return@forEach
+                genres.forEach { g ->
+                    val id = Achievements.genreId(g)
+                    if (id !in r.unlocked) { r.unlocked[id] = Achievements.nightOf(e.time); changed = true }
+                }
+            }
+        }
+        if (changed) save()
+        prefs.edit().putBoolean("genres1", true).apply()
     }
 
     companion object {

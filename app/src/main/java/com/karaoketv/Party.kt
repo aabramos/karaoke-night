@@ -20,8 +20,13 @@ fun viewsLabel(n: Long): String = when {
     else -> "$n views"
 }
 
-/** [retries]: how many times another version of the song was tried because a video refused to play. */
-/** [singer] is one name, or two joined by [DUET_JOIN] when [duet] ("Ana & Rui"). */
+/**
+ * A song in the queue. [singer] is one name, or two joined by [DUET_JOIN] when [duet] ("Ana & Rui").
+ * [retries]: how many times another version was tried because a video refused to play.
+ * [owner]: for songs added from a phone, a fingerprint of that phone's ID (see [ownerTag]), so
+ * that phone can take its own song back out of the queue; null for songs added on the TV.
+ * [genres]: the song's genres (see [Genres.detect]), worked out when it was added.
+ */
 data class QueueItem(
     val song: Song,
     val singer: String,
@@ -29,11 +34,49 @@ data class QueueItem(
     val key: Long = nextKey(),
     val retries: Int = 0,
     val duet: Boolean = false,
+    val owner: String? = null,
+    val genres: List<String> = emptyList(),
 ) {
     companion object {
-        private var counter = 0L
+        // Starts from the clock, so keys stay unique after the app restarts (phones remember theirs)
+        private var counter = System.currentTimeMillis()
         @Synchronized private fun nextKey() = ++counter
+        /** A restored song keeps its key; new keys must not reuse it. */
+        @Synchronized fun noteKey(key: Long) { if (key > counter) counter = key }
     }
+}
+
+private val PHONE_ID = Regex("^[A-Za-z0-9]{16,64}$")
+
+/**
+ * A short fingerprint of a phone's random ID (null if it isn't one). Only the fingerprint is kept,
+ * so the saved queue never holds the ID a phone uses to prove a song is its own.
+ */
+fun ownerTag(phone: String?): String? {
+    if (phone == null || !PHONE_ID.matches(phone)) return null
+    return java.security.MessageDigest.getInstance("SHA-256").digest(phone.toByteArray())
+        .take(8).joinToString("") { "%02x".format(it) }
+}
+
+private val TITLE_NOISE = Regex(
+    """\s*[(\[【][^)\]】]*\b(karaoke|lyrics?|instrumental|version|backing track|sing ?along|with vocals|hd|4k)\b[^)\]】]*[)\]】]""",
+    RegexOption.IGNORE_CASE)
+private val TITLE_SEPARATOR = Regex("""\s+[|｜]\s+""")
+private val TITLE_TAIL = Regex("""\s*[-–—:]\s*(karaoke|instrumental|lyrics?)\b.*$""", RegexOption.IGNORE_CASE)
+private val TITLE_QUALITY = Regex("""\s+(HD|HQ|4K)\s*$""", RegexOption.IGNORE_CASE)
+private val TITLE_HEAD = Regex("""^\s*(karaoke|\[karaoke])\s*[-–—:]\s*""", RegexOption.IGNORE_CASE)
+
+/**
+ * A song's name without the karaoke-channel extras, for small spaces such as the podium:
+ * "Queen - Bohemian Rhapsody (Karaoke Version) | Sing King" → "Queen - Bohemian Rhapsody".
+ * Falls back to the full title if nothing sensible is left.
+ */
+fun shortTitle(title: String): String {
+    var t = title.replace(TITLE_NOISE, "")
+    t = t.split(TITLE_SEPARATOR).first()
+    t = t.replace(TITLE_TAIL, "").replace(TITLE_HEAD, "").replace(TITLE_QUALITY, "")
+    t = t.replace(Regex("\\s+"), " ").trim(' ', '-', '–', '—', '|', ':', ',')
+    return if (t.length >= 3) t else title.trim()
 }
 
 private const val BIDI_MARKS = "\u200E\u200F\u061C\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069"
@@ -111,6 +154,18 @@ class PartyQueue(private val main: Handler) {
         changed()
     }
 
+    /** Takes a waiting song out of the queue if [owner] added it. Returns the song, or null. */
+    fun removeOwned(key: Long, owner: String): QueueItem? {
+        val removed = synchronized(items) {
+            val i = items.indexOfFirst { it.key == key && it.owner == owner }
+            if (i < 0) null else items.removeAt(i)
+        }
+        if (removed != null) changed()
+        return removed
+    }
+
+    fun contains(key: Long) = synchronized(items) { items.any { it.key == key } }
+
     fun moveToTop(key: Long) {
         synchronized(items) {
             val i = items.indexOfFirst { it.key == key }
@@ -143,6 +198,7 @@ class PartyBackend(
 
     interface Listener {
         fun onPhoneAdded(item: QueueItem)
+        fun onPhoneRemoved(item: QueueItem)
     }
 
     private val listener = WeakReference(listener)
@@ -174,7 +230,8 @@ class PartyBackend(
         val o = JSONObject()
         queue.current?.let { o.put("now", JSONObject().put("singer", it.singer).put("title", it.song.title)) }
         val arr = JSONArray()
-        queue.snapshot().forEach { arr.put(JSONObject().put("singer", it.singer).put("title", it.song.title)) }
+        // "k": each song's key, so the phone that added a song can offer to remove it
+        queue.snapshot().forEach { arr.put(JSONObject().put("singer", it.singer).put("title", it.song.title).put("k", it.key)) }
         // Phones show the same quick picks as the TV
         val c = search.country
         val picks = JSONArray()
@@ -185,9 +242,9 @@ class PartyBackend(
         o.put("players", JSONArray().also { a -> board.players().forEach { a.put(it) } })
         // Tonight's top 3 singers (best score each) and the best duet, for the phones' podium
         o.put("top", JSONArray().also { a ->
-            board.tonightBest(3).forEach { a.put(JSONObject().put("name", it.name).put("score", it.score)) }
+            board.tonightBest(3).forEach { a.put(JSONObject().put("name", it.name).put("score", it.score).put("song", shortTitle(it.song).take(60))) }
         })
-        board.tonightBest(1, duet = true).firstOrNull()?.let { o.put("duet", JSONObject().put("name", it.name).put("score", it.score)) }
+        board.tonightBest(1, duet = true).firstOrNull()?.let { o.put("duet", JSONObject().put("name", it.name).put("score", it.score).put("song", shortTitle(it.song).take(60))) }
         // The last songs sung, to sing again ("🕘 Played")
         val played = history.all()
         search.remember(played.map { it.song })
@@ -200,20 +257,32 @@ class PartyBackend(
         return o.put("queue", arr).toString()
     }
 
-    override fun add(videoId: String?, singer: String?, partner: String?): String? {
-        if (videoId == null || !isVideoId(videoId)) return "That song can't be added."
-        val song = search.lookup(videoId) ?: return "Search for the song first, then add it."
-        val solo = cleanName(singer) ?: return "Type your name first."
+    override fun add(videoId: String?, singer: String?, partner: String?, phone: String?, from: String?): PartyServer.Added {
+        fun fail(msg: String) = PartyServer.Added.failed(msg)
+        if (videoId == null || !isVideoId(videoId)) return fail("That song can't be added.")
+        val song = search.lookup(videoId) ?: return fail("Search for the song first, then add it.")
+        val solo = cleanName(singer) ?: return fail("Type your name first.")
         val duet = !partner.isNullOrBlank()
-        val name = if (duet) duetName(solo, partner) ?: return "Type a different name for your duet partner." else solo
-        val item = QueueItem(song, name, fromPhone = true, duet = duet)
+        val name = if (duet) duetName(solo, partner) ?: return fail("Type a different name for your duet partner.") else solo
+        val item = QueueItem(song, name, fromPhone = true, duet = duet, owner = ownerTag(phone),
+            genres = Genres.detect(song.title, from?.take(80)))
         val err = queue.add(item)
-        if (err == null) {
-            invalidate()
-            board.rememberPlayers(name.split(DUET_JOIN))
-            main.post { listener.get()?.onPhoneAdded(item) }
-        }
-        return err
+        if (err != null) return fail(err)
+        invalidate()
+        board.rememberPlayers(name.split(DUET_JOIN))
+        main.post { listener.get()?.onPhoneAdded(item) }
+        return PartyServer.Added.ok(item.key)
+    }
+
+    override fun remove(key: String?, phone: String?): String? {
+        val k = key?.toLongOrNull() ?: return "That song can't be removed."
+        val owner = ownerTag(phone) ?: return "Only the phone that added a song can remove it."
+        val removed = queue.removeOwned(k, owner)
+            ?: return if (queue.contains(k)) "Only the phone that added a song can remove it."
+            else "That song isn't waiting in the queue any more."
+        invalidate()
+        main.post { listener.get()?.onPhoneRemoved(removed) }
+        return null
     }
 }
 
@@ -221,15 +290,17 @@ private const val STATE_CACHE_MS = 1000L
 
 /**
  * Saves the queue (including whoever is on stage) so an accidental exit or crash doesn't lose it.
- * One short row per song: [video ID, title, channel, duration, singer, flags] (flags: 1 = added
- * from a phone, 2 = duet).
+ * One short row per song: [video ID, title, channel, duration, singer, flags, key, phone fingerprint,
+ * genres] (flags: 1 = added from a phone, 2 = duet; the fingerprint is empty for songs added on the
+ * TV; genres like "rock,pop" only when there are any).
  */
 object QueueStore {
     fun save(prefs: android.content.SharedPreferences, queue: PartyQueue) {
         val arr = JSONArray()
         (listOfNotNull(queue.current) + queue.snapshot()).forEach {
             arr.put(JSONArray().put(it.song.id).put(it.song.title.take(100)).put(it.song.channel.take(40))
-                .put(it.song.duration).put(it.singer).put((if (it.fromPhone) 1 else 0) or (if (it.duet) 2 else 0)))
+                .put(it.song.duration).put(it.singer).put((if (it.fromPhone) 1 else 0) or (if (it.duet) 2 else 0))
+                .put(it.key).put(it.owner ?: "").apply { if (it.genres.isNotEmpty()) put(it.genres.joinToString(",")) })
         }
         prefs.edit().putString("q", arr.toString()).remove("queue").apply()
     }
@@ -247,7 +318,12 @@ object QueueStore {
             if (!isVideoId(id)) continue
             val song = if (r != null) Song(id, r.optString(1).take(150), r.optString(2).take(80), r.optString(3).take(10))
             else Song(id, o!!.optString("t").take(150), o.optString("c").take(80), o.optString("d").take(10))
-            queue.add(QueueItem(song, name, flags and 1 != 0, duet = duet))
+            val key = r?.optLong(6) ?: 0L
+            val owner = r?.optString(7)?.takeIf { it.length == 16 }
+            if (key > 0) QueueItem.noteKey(key)
+            val genres = r?.optString(8).orEmpty().split(',').filter { Genres.get(it) != null }
+            queue.add(if (key > 0) QueueItem(song, name, flags and 1 != 0, key = key, duet = duet, owner = owner, genres = genres)
+                      else QueueItem(song, name, flags and 1 != 0, duet = duet, genres = Genres.detect(song.title, null)))
         }
     }
 }

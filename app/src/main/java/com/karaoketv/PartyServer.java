@@ -35,10 +35,24 @@ public final class PartyServer {
         String searchJson(String query) throws Exception;
         /** JSON object with "now" and "queue". */
         String stateJson();
-        /** Adds a song; returns null on success or a short message for the guest. */
-        /** [partner]: second singer for a duet, or null/empty for a solo. */
-        String add(String videoId, String singer, String partner);
+        /**
+         * Adds a song. [partner]: second singer for a duet, or null/empty for a solo. [phone]: the
+         * phone's own random ID, which lets that phone (and only that one) remove the song later.
+         * [from]: the search or quick pick that found the song (it helps tell the genre).
+         */
+        Added add(String videoId, String singer, String partner, String phone, String from);
+        /** Removes a waiting song this phone added; returns null on success or a short message. */
+        String remove(String key, String phone);
         // Removing players is deliberately not offered to phones: only the TV can do that.
+    }
+
+    /** The answer to adding a song: an error for the guest, or the new song's key. */
+    public static final class Added {
+        public final String error;
+        public final long key;
+        private Added(String error, long key) { this.error = error; this.key = key; }
+        public static Added ok(long key) { return new Added(null, key); }
+        public static Added failed(String error) { return new Added(error, 0); }
     }
 
     private static final int MAX_HEAD = 8 * 1024;
@@ -206,7 +220,15 @@ public final class PartyServer {
                 if (!allow("a" + ip, 8)) {
                     send(out, 429, "application/json", "{\"error\":\"Too many songs at once! Wait a minute.\"}");
                 } else {
-                    String err = b.add(params.get("id"), params.get("singer"), params.get("partner"));
+                    Added r = b.add(params.get("id"), params.get("singer"), params.get("partner"), params.get("phone"), params.get("from"));
+                    send(out, r.error == null ? 200 : 400, "application/json; charset=utf-8",
+                            r.error == null ? "{\"ok\":true,\"key\":" + r.key + "}" : "{\"error\":" + jsonString(r.error) + "}");
+                }
+            } else if (method.equals("POST") && path.equals("/api/remove")) {
+                if (!allow("d" + ip, 10)) {
+                    send(out, 429, "application/json", "{\"error\":\"Too many changes at once! Wait a minute.\"}");
+                } else {
+                    String err = b.remove(params.get("key"), params.get("phone"));
                     send(out, err == null ? 200 : 400, "application/json; charset=utf-8",
                             err == null ? "{\"ok\":true}" : "{\"error\":" + jsonString(err) + "}");
                 }

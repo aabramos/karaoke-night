@@ -38,7 +38,10 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .q{display:flex;gap:10px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--line)}
 .q:last-child{border:0}
 .n{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:900;font-size:14px;color:#0b0614}
-.q .t{min-width:0}
+.q .t{min-width:0;flex:1}
+.q .rm{flex:none;min-width:44px;height:40px;border-radius:999px;border:1px solid var(--line);background:var(--card2);color:#fff;font-weight:800;font-size:14px;padding:0 12px}
+.q .rm.sure{background:#ff5a6e;border-color:#ff5a6e}
+.qhint{color:var(--dim);font-size:12px;text-align:center;padding:8px 4px 0}
 .q .t b{display:block}
 .q .t small{display:block;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .me{background:rgba(255,61,165,.12);border-radius:10px}
@@ -59,6 +62,12 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .pod.p1 .av{width:44px;height:44px;font-size:20px}
 .pod b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pod .s{color:var(--gold);font-weight:900;font-size:20px;line-height:1.2}
+.toplist{margin-top:8px;border-radius:12px;overflow:hidden}
+.toplist .tr{display:flex;gap:8px;align-items:center;padding:6px 10px;font-size:13px;background:rgba(255,255,255,.06)}
+.toplist .tr:nth-child(odd){background:rgba(255,255,255,.1)}
+.toplist .tr b{flex:none;max-width:35%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toplist .tr span{flex:1;min-width:0;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toplist .tr i{font-style:normal;color:var(--gold);font-weight:900}
 .pod.p1 .s{font-size:26px}
 .pod.open{border-style:dashed;opacity:.6}
 .pod.open .av{background:var(--card2);color:var(--dim)}
@@ -67,7 +76,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .pod.lead{animation:lead 1.2s ease-out}
 @keyframes lead{0%{transform:scale(.85)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
 .topnote{margin-top:8px;font-size:13px;color:var(--dim);text-align:center}
-.btn:focus-visible,.chip:focus-visible,.add:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
+.btn:focus-visible,.chip:focus-visible,.add:focus-visible,.rm:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.now .mic,.pod.lead{animation:none}#toast{transition:none}.btn:active{transform:none}}
 .spin{display:inline-block;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
 </style>
@@ -165,6 +174,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
   var region = null;
   var recent = [];     // the last songs sung on the TV, from /api/state
   var searchGen = 0;   // bumped by each search, so a slow answer can't replace newer results
+  var lastFrom = '';   // the search or quick pick the shown songs came from
   function setPicks(list){
     var box = $('chips'); box.textContent = '';
     var pc = el('button','chip','🕘 Played'); pc.onclick = showPlayed; box.appendChild(pc);
@@ -181,6 +191,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
     var box = $('results'); box.textContent = '';
     box.appendChild(el('div','muted')).innerHTML = '<span class="spin">🎵</span> Searching…';
     var mine = ++searchGen;
+    lastFrom = q;                                  // sent with the song: it helps the TV tell the genre
     api('/api/search?q=' + encodeURIComponent(q)).then(function(list){
       if (mine !== searchGen) return;   // a newer search or the Played list took over
       showSongs(list, 'No karaoke versions found. Try another song.');
@@ -189,7 +200,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 
   // "🕘 Played": the last songs sung tonight, to sing again with one tap
   function showPlayed(){
-    searchGen++;
+    searchGen++; lastFrom = '';
     showSongs(recent, 'Nothing has been sung yet. Songs show up here after they play.');
   }
 
@@ -213,13 +224,77 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
     if (!singer) { toast('Type your name first 👆'); nameEl.focus(); window.scrollTo({top:0,behavior:'smooth'}); return; }
     btn.disabled = true;
     api('/api/add', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:'id=' + encodeURIComponent(v.id) + '&singer=' + encodeURIComponent(singer) + '&partner=' + encodeURIComponent(partner) })
-      .then(function(){
+      body:'id=' + encodeURIComponent(v.id) + '&singer=' + encodeURIComponent(singer) + '&partner=' + encodeURIComponent(partner) +
+        '&phone=' + PHONE + '&from=' + encodeURIComponent(lastFrom.slice(0, 80)) })
+      .then(function(r){
+        if (r && typeof r.key === 'number') rememberMine(r.key);
         btn.textContent = '✓'; btn.classList.add('done');
         toast('🎉 Added! Get ready, ' + singer + (partner ? ' & ' + partner : '') + '!');
         $('partner').value = '';   // the next song is a solo unless a partner is typed again
         refresh(); })
       .catch(function(e){ btn.disabled = false; toast(e.message); });
+  }
+
+  // ---- songs added by mistake: this phone can take its own waiting songs back out ----
+  // A random ID for this phone (kept on the phone). The TV only lets the phone that added a song remove it.
+  var PHONE = (function(){
+    var id = null;
+    try { id = localStorage.getItem('phone'); } catch(e) {}
+    if (!id || !/^[A-Za-z0-9]{24}$/.test(id)) {
+      var abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', b = new Uint8Array(24); id = '';
+      (window.crypto || window.msCrypto).getRandomValues(b);
+      for (var i = 0; i < 24; i++) id += abc.charAt(b[i] % abc.length);
+      try { localStorage.setItem('phone', id); } catch(e) {}
+    }
+    return id;
+  })();
+  var mine = [];                             // keys of the songs this phone added (kept on the phone)
+  try { mine = JSON.parse(localStorage.getItem('mine') || '[]').filter(function(k){ return typeof k === 'number'; }); } catch(e) {}
+  function rememberMine(key){
+    mine = mine.filter(function(k){ return k !== key; }).concat([key]).slice(-30);
+    try { localStorage.setItem('mine', JSON.stringify(mine)); } catch(e) {}
+  }
+  var queueNow = [], sureKey = null, sureTimer = null;
+
+  // ✕ asks "Remove?" first; a second tap within a few seconds removes the song
+  function renderQueue(){
+    var q = $('queue'); q.textContent = '';
+    if (!queueNow.length) { q.appendChild(el('div','muted','The queue is empty. Be the first! 🎤')); return; }
+    var me = nameEl.value.trim().toLowerCase(), anyMine = false;
+    queueNow.forEach(function(it, i){
+      var row = el('div','q' + (me && it.singer.toLowerCase() === me ? ' me' : ''));
+      var n = el('div','n', String(i + 1)); n.style.background = color(it.singer);
+      var t = el('div','t'); t.appendChild(el('b',null,it.singer)); t.appendChild(el('small',null,it.title));
+      row.appendChild(n); row.appendChild(t);
+      if (typeof it.k === 'number' && mine.indexOf(it.k) >= 0) {
+        anyMine = true;
+        var sure = sureKey === it.k;
+        var b = el('button','rm' + (sure ? ' sure' : ''), sure ? 'Remove?' : '✕'); b.type = 'button';
+        b.setAttribute('aria-label', sure ? 'Tap again to remove ' + it.title : 'Remove ' + it.title + ' from the queue');
+        b.onclick = function(){ if (sureKey === it.k) removeSong(it, b); else askRemove(it.k); };
+        row.appendChild(b);
+      }
+      q.appendChild(row);
+    });
+    if (anyMine) q.appendChild(el('div','qhint','Added a song by mistake? Tap ✕ next to it. Only songs from this phone can be removed.'));
+  }
+  function askRemove(key){
+    sureKey = key; clearTimeout(sureTimer);
+    sureTimer = setTimeout(function(){ sureKey = null; renderQueue(); }, 4000);
+    renderQueue();
+  }
+  function removeSong(it, b){
+    b.disabled = true; clearTimeout(sureTimer); sureKey = null;
+    api('/api/remove', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:'key=' + encodeURIComponent(it.k) + '&phone=' + PHONE })
+      .then(function(){
+        toast('🗑 Removed “' + it.title.slice(0, 40) + '”');
+        mine = mine.filter(function(k){ return k !== it.k; });
+        try { localStorage.setItem('mine', JSON.stringify(mine)); } catch(e) {}
+        queueNow = queueNow.filter(function(x){ return x.k !== it.k; }); renderQueue();
+        refresh();
+      })
+      .catch(function(e){ toast(e.message); renderQueue(); });
   }
 
   // ---- tonight's top 3 (best score per singer), with the best duet underneath ----
@@ -244,7 +319,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
         var av = el('div','av', p.name.charAt(0).toUpperCase()); av.style.background = color(p.name); av.setAttribute('aria-hidden','true');
         c.appendChild(av); c.appendChild(el('b',null,p.name)); c.appendChild(el('div','s',String(p.score)));
         if (mine) c.appendChild(el('span','you','YOU'));
-        c.setAttribute('aria-label', places[i] + ' place: ' + p.name + (mine ? ' (you)' : '') + ', ' + p.score + ' points');
+        c.setAttribute('aria-label', places[i] + ' place: ' + p.name + (mine ? ' (you)' : '') + ', ' + p.score + ' points' + (p.song ? ', singing ' + p.song : ''));
       } else {
         c.classList.add('open');
         var q = el('div','av','?'); q.setAttribute('aria-hidden','true'); c.appendChild(q);
@@ -256,7 +331,19 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
     }
     pod.setAttribute('role','list');
     box.appendChild(pod);
-    if (duetBest) box.appendChild(el('div','topnote','👫 Best duet: ' + duetBest.name + ' · ' + duetBest.score));
+    // The same places as a list, with the song each score came from
+    var list = el('div','toplist');
+    top.forEach(function(p, i){
+      var r = el('div','tr');
+      r.appendChild(el('span',null,medals[i])).style.flex = 'none';
+      r.appendChild(el('b',null,p.name));
+      r.appendChild(el('span',null,p.song || ''));
+      r.appendChild(el('i',null,String(p.score)));
+      list.appendChild(r);
+    });
+    list.setAttribute('aria-hidden','true');   // the podium above already reads out each place and song
+    box.appendChild(list);
+    if (duetBest) box.appendChild(el('div','topnote','👫 Best duet: ' + duetBest.name + ' · ' + duetBest.score + (duetBest.song ? ' · ' + duetBest.song : '')));
   }
   var justLed = false;
   function setTop(list, duet){
@@ -281,9 +368,10 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
       var key = JSON.stringify(list);
       if (key !== playersKey) { playersKey = key; players = list; renderPlayers(); }
       recent = Array.isArray(s.recent) ? s.recent.filter(function(v){ return v && ID.test(v.id) && typeof v.title === 'string'; }).slice(0, 10) : [];
+      var song = function(p){ return typeof p.song === 'string' ? p.song.slice(0, 60) : ''; };
       var tl = Array.isArray(s.top) ? s.top.filter(function(p){ return p && typeof p.name === 'string' && typeof p.score === 'number'; }).slice(0, 3) : [];
-      var db = s.duet && typeof s.duet.name === 'string' && typeof s.duet.score === 'number' ? { name: s.duet.name, score: s.duet.score } : null;
-      setTop(tl.map(function(p){ return { name: p.name, score: p.score }; }), db);
+      var db = s.duet && typeof s.duet.name === 'string' && typeof s.duet.score === 'number' ? { name: s.duet.name, score: s.duet.score, song: song(s.duet) } : null;
+      setTop(tl.map(function(p){ return { name: p.name, score: p.score, song: song(p) }; }), db);
       var c = s.country || {};
       if (s.picks && c.code !== region) {
         region = c.code;
@@ -292,15 +380,8 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
       }
       if (s.now) { $('nowSinger').textContent = s.now.singer + ' is singing'; $('nowSong').textContent = s.now.title; }
       else { $('nowSinger').textContent = 'Waiting for the next singer…'; $('nowSong').textContent = 'Add a song below!'; }
-      var q = $('queue'); q.textContent = '';
-      if (!s.queue || !s.queue.length) { q.appendChild(el('div','muted','The queue is empty. Be the first! 🎤')); return; }
-      var me = nameEl.value.trim().toLowerCase();
-      s.queue.forEach(function(it, i){
-        var row = el('div','q' + (me && it.singer.toLowerCase() === me ? ' me' : ''));
-        var n = el('div','n', String(i + 1)); n.style.background = color(it.singer);
-        var t = el('div','t'); t.appendChild(el('b',null,it.singer)); t.appendChild(el('small',null,it.title));
-        row.appendChild(n); row.appendChild(t); q.appendChild(row);
-      });
+      queueNow = Array.isArray(s.queue) ? s.queue.filter(function(it){ return it && typeof it.singer === 'string' && typeof it.title === 'string'; }) : [];
+      renderQueue();
     }).catch(function(){ failures = Math.min(failures + 1, 3); });
   }
   // Updates every ~4 s while the page is open (a little random, so a room full of phones doesn't

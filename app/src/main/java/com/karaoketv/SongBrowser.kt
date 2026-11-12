@@ -30,7 +30,8 @@ class SongBrowser(
     private val scroll: ScrollView,
     private val results: LinearLayout,
     private val columns: Int,
-    private val onPick: (Song) -> Unit,
+    /** A song was chosen; the second value is the search or quick pick that found it (null for "🕘 Played"). */
+    private val onPick: (Song, String?) -> Unit,
 ) {
     private var generation = 0
     private var focusOnResults = false
@@ -202,7 +203,7 @@ class SongBrowser(
             visibility = if (song.duration.isEmpty()) View.GONE else View.VISIBLE
         }
         ImageLoader.load(song.thumb, v.findViewById<ImageView>(R.id.thumb))
-        v.setOnClickListener { onPick(song) }
+        v.setOnClickListener { onPick(song, lastQuery) }
         v.setOnFocusChangeListener { view, focused ->
             val s = if (focused) (if (columns > 1) 1.07f else 1.03f) else 1f
             view.animate().scaleX(s).scaleY(s).translationZ(if (focused) px(10).toFloat() else 0f)

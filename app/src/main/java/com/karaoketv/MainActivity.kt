@@ -122,6 +122,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private var scoreAnim: ValueAnimator? = null
     private var autoNextIn = 0
     private var pickerSong: Song? = null
+    /** The search or quick pick the picked song came from (helps tell its genre). */
+    private var pickerFrom: String? = null
     private var overlayReturnFocus: View? = null
     private var sheetCancel: (() -> Unit)? = null
     private var songsOnThisPlayer = 0
@@ -163,7 +165,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         history = History(this)
         achievements = AchievementBook(this)
         // First run of this version: award achievements for the scores already saved (off the main thread)
-        io.execute { runCatching { achievements.backfill(board.all()) } }
+        io.execute { runCatching { achievements.backfill(board.all()); achievements.backfillGenres(board.all()) } }
         music = LobbyMusic(this)
         sfx = Sfx(this).also { it.master = volume / 100f }
 
@@ -191,7 +193,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             this, search, io,
             findViewById(R.id.lobbySearch), findViewById(R.id.lobbyChips), findViewById(R.id.lobbyStatus),
             findViewById(R.id.lobbyScroll), findViewById(R.id.lobbyResults), columns = 3,
-        ) { openPicker(it) }
+        ) { song, from -> openPicker(song, from) }
         lobbyBrowser.played = { history.all() }
         lobbyBrowser.onResults = { found ->
             if (firstLobbyLoad && found && mode == Mode.LOBBY && !anyOverlayOpen()) lobbyBrowser.focusFirst()
@@ -202,7 +204,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             this, search, io,
             findViewById(R.id.panelSearch), findViewById(R.id.panelChips), findViewById(R.id.panelStatus),
             findViewById(R.id.panelScroll), findViewById(R.id.panelResults), columns = 1,
-        ) { openPicker(it) }
+        ) { song, from -> openPicker(song, from) }
         panelBrowser.played = { history.all() }
 
         click(R.id.btnBoard) { showBoard() }
@@ -663,8 +665,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private var pickerPage = 0
     private var pickerTyping = false
 
-    private fun openPicker(song: Song) {
+    private fun openPicker(song: Song, from: String?) {
         pickerSong = song
+        pickerFrom = from
         pickerDuet = false
         duetFirst = null
         pickerRemove = false
@@ -841,7 +844,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val duet = pickerDuet
         val singer = if (duet) duetFirst + DUET_JOIN + name else name
         val singNow = mode == Mode.LOBBY && queue.isEmpty()
-        val item = QueueItem(song, singer, fromPhone = false, duet = duet)
+        val item = QueueItem(song, singer, fromPhone = false, duet = duet, genres = Genres.detect(song.title, pickerFrom))
         val err = queue.add(item)
         closePicker()
         if (err != null) { toast(err); return }
@@ -1302,7 +1305,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val record = if (item.duet) null else achievements.of(item.singer)
         val badges = Badges.earned(entry, board.tonightAll(), record?.songs ?: 0, record?.best, hour, limit = 9)
         val rank = board.add(entry)
-        val unlocked = runCatching { achievements.record(entry, before, rank, hour) }.getOrDefault(emptyList())
+        val unlocked = runCatching { achievements.record(entry, before, rank, hour, item.genres) }.getOrDefault(emptyList())
         val lines = scoreBadgeLines(unlocked, badges)
         findViewById<TextView>(R.id.scBadge).apply {
             text = lines.joinToString("\n")
@@ -1609,6 +1612,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
     override fun onPhoneAdded(item: QueueItem) {
         sfx.play(sfx.pop)
         toast("📱 ${item.singer} added “${item.song.title.take(45)}”")
+    }
+
+    override fun onPhoneRemoved(item: QueueItem) {
+        toast("📱 ${item.singer} took “${item.song.title.take(45)}” out of the queue")
     }
 
     private fun showBigQr() {
@@ -1953,22 +1960,24 @@ class MainActivity : Activity(), PartyBackend.Listener {
             podium.addView(podiumColumn(e, i), LinearLayout.LayoutParams(px(170), ViewGroup.LayoutParams.WRAP_CONTENT))
         }
 
+        // The full list, podium places included, each with the song it was scored with
         val rows = findViewById<LinearLayout>(R.id.boardRows)
         rows.removeAllViews()
-        list.drop(3).forEachIndexed { j, e ->
+        val medals = arrayOf("🥇", "🥈", "🥉")
+        list.forEachIndexed { j, e ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(px(14), px(3), px(14), px(3))
+                setPadding(px(14), px(2), px(14), px(2))
                 setBackgroundColor(if (j % 2 == 0) 0x26FFFFFF else 0x10FFFFFF)
             }
-            row.addView(label("${j + 4}.", 16f, R.color.text_dim), LinearLayout.LayoutParams(px(40), ViewGroup.LayoutParams.WRAP_CONTENT))
-            row.addView(TextView(this).apply { avatar(e.name); gravity = Gravity.CENTER; setTextColor(0xFF0B0614.toInt()); textSize = 13f },
-                LinearLayout.LayoutParams(px(28), px(28)))
-            row.addView(label(e.name, 17f, R.color.text_main, bold = true).apply { setPadding(px(10), 0, 0, 0) },
+            row.addView(label(medals.getOrNull(j) ?: "${j + 1}.", 15f, R.color.text_dim), LinearLayout.LayoutParams(px(40), ViewGroup.LayoutParams.WRAP_CONTENT))
+            row.addView(TextView(this).apply { avatar(e.name); gravity = Gravity.CENTER; setTextColor(0xFF0B0614.toInt()); textSize = 12f },
+                LinearLayout.LayoutParams(px(24), px(24)))
+            row.addView(label(e.name, 15f, R.color.text_main, bold = true).apply { setPadding(px(10), 0, 0, 0) },
                 LinearLayout.LayoutParams(px(if (e.duet) 250 else 170), ViewGroup.LayoutParams.WRAP_CONTENT))
-            row.addView(label(e.song, 12f, R.color.text_dim), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(label(e.score.toString(), 20f, R.color.gold, bold = true).apply { gravity = Gravity.END },
+            row.addView(label(shortTitle(e.song), 13f, R.color.text_dim), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(label(e.score.toString(), 17f, R.color.gold, bold = true).apply { gravity = Gravity.END },
                 LinearLayout.LayoutParams(px(60), ViewGroup.LayoutParams.WRAP_CONTENT))
             rows.addView(row)
         }
@@ -1980,7 +1989,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val rows = findViewById<LinearLayout>(R.id.boardAchRows)
         rows.removeAllViews()
         val singers = achievements.singers()
-        val total = Achievements.ALL.size
+        val total = Achievements.MAIN.size
+        val genres = Achievements.GENRES.size
         findViewById<TextView>(R.id.boardEmpty).apply {
             text = "No achievements yet. Sing a song to earn your first! 🎤"
             visibility = if (singers.isEmpty()) View.VISIBLE else View.GONE
@@ -1994,17 +2004,23 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 isFocusable = true
                 isClickable = true
                 setPadding(px(14), px(6), px(14), px(6))
-                contentDescription = "${r.name}: ${r.unlocked.size} of $total achievements. Press to see them all."
+                val main = Achievements.MAIN.count { it.id in r.unlocked }
+                val sung = Achievements.GENRES.count { it.id in r.unlocked }
+                contentDescription = "${r.name}: $main of $total achievements, $sung of $genres genres. Press to see them all."
                 setOnClickListener { showSinger(r.name) }
             }
+            val main = Achievements.MAIN.filter { it.id in r.unlocked }
+            val sung = Achievements.GENRES.filter { it.id in r.unlocked }
             row.addView(TextView(this).apply { avatar(r.name); gravity = Gravity.CENTER; setTextColor(0xFF0B0614.toInt()); textSize = 14f },
                 LinearLayout.LayoutParams(px(32), px(32)))
             row.addView(label(r.name, 17f, R.color.text_main, bold = true).apply { setPadding(px(10), 0, px(8), 0) },
                 LinearLayout.LayoutParams(px(170), ViewGroup.LayoutParams.WRAP_CONTENT))
-            // Their badges in catalogue order
-            row.addView(label(Achievements.ALL.filter { it.id in r.unlocked }.joinToString(" ") { it.icon }, 18f, R.color.text_main),
+            // Their badges in catalogue order, then how many genres they've sung
+            row.addView(label(main.joinToString(" ") { it.icon }, 18f, R.color.text_main),
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(label("${r.unlocked.size}/$total", 18f, R.color.gold, bold = true).apply { gravity = Gravity.END },
+            row.addView(label("🎼 ${sung.size}/$genres", 15f, R.color.text_dim).apply { gravity = Gravity.END },
+                LinearLayout.LayoutParams(px(76), ViewGroup.LayoutParams.WRAP_CONTENT))
+            row.addView(label("${main.size}/$total", 18f, R.color.gold, bold = true).apply { gravity = Gravity.END },
                 LinearLayout.LayoutParams(px(64), ViewGroup.LayoutParams.WRAP_CONTENT))
             rows.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(48)).apply { bottomMargin = px(6) })
         }
@@ -2013,25 +2029,53 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun showSinger(name: String) {
         val r = achievements.of(name) ?: return
         singerReturnFocus = currentFocus           // the hall of fame keeps its own way back
-        val total = Achievements.ALL.size
+        val total = Achievements.MAIN.size
+        val main = Achievements.MAIN.count { it.id in r.unlocked }
+        val sung = Achievements.GENRES.count { it.id in r.unlocked }
         findViewById<TextView>(R.id.achAvatar).avatar(r.name)
         findViewById<TextView>(R.id.achTitle).text = "🏅 ${r.name.uppercase()}"
         findViewById<TextView>(R.id.achSub).text =
-            "${r.unlocked.size} of $total achievements  ·  ${r.songs} song${if (r.songs == 1) "" else "s"} sung"
+            "$main of $total achievements  ·  $sung of ${Achievements.GENRES.size} genres  ·  ${r.songs} song${if (r.songs == 1) "" else "s"} sung"
         val grid = findViewById<LinearLayout>(R.id.achGrid)
         grid.removeAllViews()
-        // Unlocked first (oldest first), then the ones still to get
-        val sorted = Achievements.ALL.filter { it.id in r.unlocked }.sortedBy { r.unlocked[it.id] } +
-            Achievements.ALL.filter { it.id !in r.unlocked }
-        sorted.chunked(4).forEach { chunk ->
+        // Unlocked first (oldest first), then the ones still to get; 5 a row so all fit on screen
+        val sorted = Achievements.MAIN.filter { it.id in r.unlocked }.sortedBy { r.unlocked[it.id] } +
+            Achievements.MAIN.filter { it.id !in r.unlocked }
+        sorted.chunked(5).forEach { chunk ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             chunk.forEach { a ->
                 val got = r.unlocked[a.id]
                 row.addView(achievementTile(a, got?.let { "✓ " + Achievements.dateOf(it) }),
-                    LinearLayout.LayoutParams(0, px(58), 1f).apply { setMargins(px(4), px(4), px(4), px(4)) })
+                    LinearLayout.LayoutParams(0, px(50), 1f).apply { setMargins(px(3), px(2), px(3), px(2)) })
             }
-            repeat(4 - chunk.size) { row.addView(View(this), LinearLayout.LayoutParams(0, px(58), 1f).apply { setMargins(px(4), 0, px(4), 0) }) }
+            repeat(5 - chunk.size) { row.addView(View(this), LinearLayout.LayoutParams(0, px(50), 1f).apply { setMargins(px(3), 0, px(3), 0) }) }
             grid.addView(row)
+        }
+        // Genres: a chip for each, lit up once they've sung it
+        val chips = findViewById<LinearLayout>(R.id.achGenres)
+        chips.removeAllViews()
+        Achievements.GENRES.zip(Genres.ALL).chunked(6).forEach { chunk ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            chunk.forEach { (a, g) ->
+                val got = r.unlocked[a.id]
+                row.addView(TextView(this).apply {
+                    text = "${g.icon} ${g.chip}"
+                    textSize = 13f
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    gravity = Gravity.CENTER
+                    setTextColor(getColor(if (got != null) R.color.text_main else R.color.text_dim))
+                    alpha = if (got != null) 1f else 0.55f
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = px(15).toFloat()
+                        setColor(if (got != null) 0x33FFD23F else 0x14FFFFFF)
+                        setStroke(px(1), if (got != null) getColor(R.color.gold) else 0x33FFFFFF)
+                    }
+                    contentDescription = "${g.chip}: " + (got?.let { "${a.title}, sung ${Achievements.dateOf(it)}" } ?: "not sung yet")
+                }, LinearLayout.LayoutParams(0, px(28), 1f).apply { setMargins(px(3), px(3), px(3), px(3)) })
+            }
+            repeat(6 - chunk.size) { row.addView(View(this), LinearLayout.LayoutParams(0, px(28), 1f).apply { setMargins(px(3), 0, px(3), 0) }) }
+            chips.addView(row)
         }
         achLayer.visibility = View.VISIBLE
         popIn(achLayer)
@@ -2074,7 +2118,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     private fun podiumColumn(e: Entry, place: Int): View {
-        val heights = intArrayOf(72, 52, 38)
+        val heights = intArrayOf(56, 42, 30)   // lower steps leave room for the full list of 8 below
         val medals = arrayOf("🥇", "🥈", "🥉")
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -2083,7 +2127,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 avatar(e.name); gravity = Gravity.CENTER; setTextColor(0xFF0B0614.toInt())
                 textSize = 24f; paint.isFakeBoldText = true
             }, LinearLayout.LayoutParams(px(46), px(46)))
-            addView(label(e.name, 17f, R.color.text_main, bold = true).apply { gravity = Gravity.CENTER })
+            addView(label(e.name, 17f, R.color.text_main, bold = true).apply { gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(label(e.score.toString(), 26f, R.color.gold, bold = true).apply { gravity = Gravity.CENTER })
             addView(TextView(context).apply {
                 text = medals[place]

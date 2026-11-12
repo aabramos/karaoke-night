@@ -59,18 +59,19 @@
             android:textColor="@color/text_main"
             android:textSize="18sp" />
 
-        <TextView
-            android:id="@+id/btnCountry"
-            style="@style/IconButton"
-            android:layout_marginEnd="10dp"
-            android:contentDescription="Party country"
-            android:text="🌍" />
-
+        <!-- Voice search right next to the search box -->
         <TextView
             android:id="@+id/btnVoice"
             style="@style/IconButton"
             android:contentDescription="Voice search"
             android:text="🎙" />
+
+        <TextView
+            android:id="@+id/btnCountry"
+            style="@style/IconButton"
+            android:layout_marginStart="10dp"
+            android:contentDescription="Party country"
+            android:text="🌍" />
 
         <TextView
             android:id="@+id/btnBoard"

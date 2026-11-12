@@ -19,13 +19,18 @@ A karaoke app for the big screen, built for parties:
   which also removes their scores and achievements
 - **The judge**: drumroll, count-up, stars, a verdict, applause, and confetti + fanfare for 95+, plus
   highlights like a new personal best
-- **Achievements**: 17 to collect and keep (Rising star, 90 club, Champion, Hat-trick, Dream team, Night
-  owl, Legend…). New ones pop up on the score screen; the hall of fame's **🏅 Achievements** tab shows every
-  singer's collection, and OK on a singer shows all 17: when each was won, and how to get the rest.
-  Scores from before this version count too
+- **Achievements**: 17 to collect and keep (85 / 90 / 95 points, Perfect 100, Champion, Hat-trick, Dream
+  team, Night owl, Legend…), plus **17 genres** to collect, unlocked the first time someone sings each one
+  (🎸 Rock, 🍭 Pop, 🕺 Disco, 🧢 Hip-hop, 💜 Soul, 🤠 Country, 💃 Latin, 🤘 Metal, 🎭 Musicals, 🎬 Movies,
+  🎻 Classical, 🎮 Games & anime, 🎺 Jazz, 🌴 Reggae, 🌸 K-pop & J-pop, 🇵🇹 Portuguese, 🇧🇷 Brazilian).
+  New ones pop up on the score screen; the hall of fame's **🏅 Achievements** tab shows every singer's
+  collection, and OK on a singer shows them all: when each was won, and how to get the rest.
+  Scores from before this version count too. YouTube doesn't say what genre a video is, so the app
+  works it out from the title (well-known artists, musicals, films, games…) and from the search or
+  quick pick that found the song ("🎸 Rock" counts as rock); songs it can't place count for no genre
 - **Opening animation** when the app starts (any button or a tap skips it)
 - **🕘 Played**: the last 10 songs sung, first in the quick picks on the TV and on phones, to sing one again
-- **Hall of fame**: podium and top 8 for tonight, all time and duets, plus achievements. Scores are saved automatically under each singer's name
+- **Hall of fame**: a podium and the top 8 (with the song each score came from) for tonight, all time and duets, plus achievements. Scores are saved automatically under each singer's name
 - **About** (ℹ️ in the lobby): version number, author and a link (and QR code) to the project page
 - **Works without a YouTube API key** (optional key for extra reliability, see below)
 - **Never stalls on a blocked video**: if a video's owner blocks playback outside YouTube, the app
@@ -91,8 +96,11 @@ The phone's Back gesture does what BACK does on the remote.
 The TV runs a tiny web page for the party. Guests scan the QR code, tap their name in the players list (or
 type it once), search (or tap **🕘 Played** for the songs sung so far), and tap **+**. For a duet, fill in **Duet partner** too (tap a name while that box
 is selected; typing filters the names). Phones can't remove players: only the TV can.
-Their phones also show who's singing, the queue and **tonight's top 3** (each singer's best score, plus
-the best duet), updated live. Their own spot is highlighted, and a message pops up when someone takes the lead.
+Added a song by mistake? A **✕** appears next to every song that phone added while it's still waiting;
+tap it, then tap **Remove?** to confirm. A phone can only remove its own songs (each phone gets a random ID,
+and the TV only keeps a fingerprint of it), never someone else's or the one being sung.
+Their phones also show who's singing, the queue and **tonight's top 3** (each singer's best score and the
+song, plus the best duet), updated live. Their own spot is highlighted, and a message pops up when someone takes the lead.
 
 - Phones must be on the **same Wi-Fi** as the Shield. Guest networks often block devices from seeing each
   other; if the page won't open, use the main network.
@@ -221,6 +229,7 @@ It appears in the Shield's app row as **Karaoke Night**.
 | Judge comments | `Scores.kt` → `lines` |
 | Score-screen highlights | `Scores.kt` → `Badges` |
 | Achievements (add, change, remove) | `Achievements.kt` → `Achievements.ALL` and `earnedBy` |
+| Genres and the artists/words that identify them | `Genres.kt` → `Genres.ALL` |
 | How many songs "🕘 Played" keeps | `Scores.kt` → `History.MAX` (10) |
 | Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops from end to start without a gap); its fixed level is `Audio.kt` → `LobbyMusic.LEVEL` |
 | Autostart delay | `MainActivity.kt` → `AUTOSTART_MS` (30 s) |
