@@ -25,6 +25,14 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
+    <!-- Guests' cheers from their phones, rising along the edges of the video -->
+    <com.karaoketv.ReactionsView
+        android:id="@+id/stageReactions"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
     <!-- Covers the video while paused and in the last seconds, where YouTube shows suggestions -->
     <FrameLayout
         android:id="@+id/stageCurtain"
@@ -125,6 +133,11 @@
     <include
         android:id="@+id/achLayer"
         layout="@layout/achievements"
+        android:visibility="gone" />
+
+    <include
+        android:id="@+id/recapLayer"
+        layout="@layout/recap"
         android:visibility="gone" />
 
     <include

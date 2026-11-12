@@ -152,9 +152,11 @@ class SongSearch(context: Context) {
     private fun dropUnembeddable(list: List<Song>): List<Song> {
         if (list.isEmpty()) return list
         val pool = synchronized(this) {
-            checker ?: java.util.concurrent.Executors.newFixedThreadPool(8) { r ->
-                Thread(r, "embed-check").apply { isDaemon = true }
-            }.also { checker = it }
+            // 8 checks at once while a search runs; the threads go away when idle (the Shield has little memory)
+            checker ?: java.util.concurrent.ThreadPoolExecutor(8, 8, 20, java.util.concurrent.TimeUnit.SECONDS,
+                java.util.concurrent.LinkedBlockingQueue()) { r -> Thread(r, "embed-check").apply { isDaemon = true } }
+                .apply { allowCoreThreadTimeOut(true) }
+                .also { checker = it }
         }
         val futures = runCatching {
             pool.invokeAll(list.map { s -> java.util.concurrent.Callable { embedStatus(s.id) } }, 6, java.util.concurrent.TimeUnit.SECONDS)

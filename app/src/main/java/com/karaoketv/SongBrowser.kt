@@ -45,7 +45,13 @@ class SongBrowser(
     private var picks: List<Pair<String, String>> = emptyList()
     /** The recently sung songs, for the "🕘 Played" chip (shown first when set). */
     var played: (() -> List<Played>)? = null
-    private val chipOffset get() = if (played != null) 1 else 0
+    /** Rolls a random song for the "🎲 Surprise me" chip (shown after "🕘 Played" when set). */
+    var dice: (() -> Surprise.Roll)? = null
+    /** The dice landed on [song] (for a sound and a toast); [rolling] is called for each name that flashes past. */
+    var onSurprise: ((Song, Surprise.Roll) -> Unit)? = null
+    var rolling: (() -> Unit)? = null
+    private val surpriseChip get() = if (played != null) 1 else 0
+    private val chipOffset get() = (if (played != null) 1 else 0) + (if (dice != null) 1 else 0)
 
     init {
         searchBox.setOnEditorActionListener { v, actionId, event ->
@@ -70,6 +76,7 @@ class SongBrowser(
         chips.removeAllViews()
         (chips.parent as? android.widget.HorizontalScrollView)?.scrollTo(0, 0)
         if (played != null) addChip("🕘 Played") { showPlayed() }
+        if (dice != null) addChip("🎲 Surprise me") { surprise() }
         list.forEachIndexed { i, (label, query) -> addChip(label) { selectChip(i); run(query) } }
     }
 
@@ -98,6 +105,59 @@ class SongBrowser(
         render(list.map { it.song }, list.associate { it.song.id to History.label(it) })
         if (list.isEmpty()) showStatus("Nothing has been sung yet.\nSongs appear here after they're played.")
         onResults?.invoke(list.isNotEmpty())
+    }
+
+    /**
+     * "🎲 Surprise me": song names flash past like a slot machine while the dice's song is
+     * searched, then the results show with the surprise first (and focused). Press it again to re-roll.
+     */
+    fun surprise() {
+        val roll = dice?.invoke() ?: return
+        val gen = ++generation
+        lastQuery = roll.query
+        for (i in 0 until chips.childCount) chips.getChildAt(i).isSelected = i == surpriseChip
+        scroll.animate().alpha(0.3f).setDuration(150).start()
+        var result: Result<List<Song>>? = null
+        val started = android.os.SystemClock.uptimeMillis()
+        val spin = object : Runnable {
+            override fun run() {
+                if (gen != generation || activity.isFinishing) return
+                val r = result
+                val elapsed = android.os.SystemClock.uptimeMillis() - started
+                if (r != null && elapsed >= SPIN_MS) { landSurprise(roll, r); return }
+                if (elapsed > SPIN_MS + 1500) {
+                    // A slow connection: stop the slot machine (and its ticking) and just wait
+                    showStatus("🎲  Looking for “${roll.label}”…")
+                    status.postDelayed(this, 250)
+                    return
+                }
+                showStatus("🎲  ${Surprise.teaser()}")
+                rolling?.invoke()
+                // Slows down towards the end, like a wheel coming to a stop
+                status.postDelayed(this, if (r != null && elapsed > SPIN_MS - 500) 170L else 85L)
+            }
+        }
+        status.post(spin)
+        val engine = search
+        val self = WeakReference(this)
+        io.execute {
+            val r = runCatching { engine.search(roll.query) }
+            activity.runOnUiThread { if (self.get()?.generation == gen) result = r }
+        }
+    }
+
+    private fun landSurprise(roll: Surprise.Roll, result: Result<List<Song>>) {
+        result.onSuccess { found ->
+            val songs = Surprise.arrange(roll, found)
+            val first = songs.firstOrNull()
+            render(songs, if (first != null) mapOf(first.id to "🎲 Surprise pick · ${roll.label}") else emptyMap())
+            if (first == null) { showStatus("🎲 No karaoke version of “${roll.label}” found.\nRoll again!"); return }
+            focusFirst()
+            onSurprise?.invoke(first, roll)
+        }.onFailure { e ->
+            render(emptyList())
+            showStatus(if (e is SearchException) "😕 ${e.message}" else "😕 Can't reach YouTube.\nCheck the TV's internet connection.")
+        }
     }
 
     fun runQuickPick(index: Int) {
@@ -228,4 +288,9 @@ class SongBrowser(
     }
 
     private fun px(dp: Int) = (dp * density).toInt()
+
+    private companion object {
+        /** How long the names flash past, at least (the search usually takes about that long anyway). */
+        const val SPIN_MS = 1600L
+    }
 }

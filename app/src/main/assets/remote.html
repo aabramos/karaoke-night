@@ -78,14 +78,43 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 @keyframes lead{0%{transform:scale(.85)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
 .topnote{margin-top:8px;font-size:13px;color:var(--dim);text-align:center}
 .btn:focus-visible,.chip:focus-visible,.add:focus-visible,.rm:focus-visible,.qmore:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
-@media (prefers-reduced-motion:reduce){.now .mic,.pod.lead{animation:none}#toast{transition:none}.btn:active{transform:none}}
+@media (prefers-reduced-motion:reduce){.now .mic,.pod.lead,.res.pick,.dice .roll,.cbar i.wait{animation:none}.fly{display:none}#toast{transition:none}.btn:active,.cbtns button:active{transform:none}}
 .spin{display:inline-block;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
+/* cheers while someone sings: one tap, then a short wait (the bar refills) */
+.cheer{margin-top:8px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 12px}
+.cheer .lbl{font-size:13px;color:var(--dim);text-align:center}
+.cheer .lbl b{color:#fff}
+.cbtns{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px}
+.cbtns button{border:0;border-radius:14px;background:var(--card2);font-size:26px;min-height:52px;padding:0;transition:transform .1s,opacity .2s}
+.cbtns button:active{transform:scale(.88)}
+.cbtns button:disabled{opacity:.35}
+.cbar{height:4px;border-radius:2px;background:var(--card2);margin-top:8px;overflow:hidden}
+.cbar i{display:block;height:100%;width:100%;background:linear-gradient(90deg,var(--pink),var(--cyan));transform-origin:left}
+.cbar i.wait{animation:refill 3s linear}
+@keyframes refill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.fly{position:fixed;font-size:34px;pointer-events:none;z-index:9;animation:fly 1s ease-out forwards}
+@keyframes fly{to{transform:translateY(-140px) scale(1.6);opacity:0}}
+/* 🎲 surprise me */
+.dice{text-align:center;padding:22px 10px;font-weight:800;font-size:18px}
+.dice .roll{display:inline-block;font-size:34px;animation:roll .5s linear infinite}
+@keyframes roll{25%{transform:rotate(90deg) scale(1.1)}50%{transform:rotate(180deg)}75%{transform:rotate(270deg) scale(1.1)}100%{transform:rotate(360deg)}}
+.pickhead{margin-top:10px;text-align:center;font-weight:900;letter-spacing:.08em;color:var(--gold);font-size:14px}
+.pickhead small{display:block;letter-spacing:0;font-weight:600;color:#fff;font-size:15px;margin-top:2px}
+.res.pick{border:2px solid var(--gold);box-shadow:0 0 22px rgba(255,210,63,.25);animation:lead .9s ease-out}
+.again{display:block;margin:10px auto 0;min-height:44px}
+.others{margin-top:16px;font-size:12px;letter-spacing:.15em;color:var(--dim);text-align:center}
 </style>
 </head>
 <body>
 <h1>🎤 KARAOKE <span>NIGHT</span></h1>
 
 <div class="card now" id="now"><div class="mic">🎤</div><div><b id="nowSinger">Waiting for the first singer…</b><small id="nowSong">Pick a song below!</small></div></div>
+<!-- Only while a song is playing: cheers that float up on the TV -->
+<div class="cheer" id="cheer" hidden>
+  <div class="lbl">Cheer for <b id="cheerWho"></b>! It pops up on the TV</div>
+  <div class="cbtns" id="cheerBtns" role="group" aria-label="Cheer for the singer"></div>
+  <div class="cbar" aria-hidden="true"><i id="cheerFill"></i></div>
+</div>
 
 <h2 id="topTitle">🏆 TONIGHT'S TOP 3</h2>
 <div id="top"><div class="muted">Loading…</div></div>
@@ -180,6 +209,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
   function setPicks(list){
     var box = $('chips'); box.textContent = '';
     var pc = el('button','chip','🕘 Played'); pc.onclick = showPlayed; box.appendChild(pc);
+    var dc = el('button','chip','🎲 Surprise me'); dc.onclick = surprise; box.appendChild(dc);
     (list || []).forEach(function(p){
       if (!p || typeof p[0] !== 'string' || typeof p[1] !== 'string') return;
       var c = el('button','chip',p[0]); c.onclick = function(){ $('q').value = p[1]; search(p[1]); }; box.appendChild(c);
@@ -206,17 +236,51 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
     showSongs(recent, 'Nothing has been sung yet. Songs show up here after they play.');
   }
 
-  function showSongs(list, emptyText){
+  // "🎲 Surprise me": the dice spin while the TV picks and searches a song everyone knows
+  function surprise(){
+    var box = $('results'); box.textContent = '';
+    var d = el('div','dice'); d.appendChild(el('span','roll','🎲')).setAttribute('aria-hidden','true');
+    d.appendChild(document.createTextNode(' Rolling the dice…')); d.setAttribute('role','status'); box.appendChild(d);
+    var mine = ++searchGen, started = Date.now();
+    api('/api/surprise').then(function(r){
+      setTimeout(function(){                  // let the dice roll a moment, even on a fast answer
+        if (mine !== searchGen) return;
+        var label = typeof r.label === 'string' ? r.label.slice(0, 80) : '';
+        lastFrom = typeof r.query === 'string' ? r.query.slice(0, 80) : '';
+        $('q').value = '';
+        showSongs(Array.isArray(r.songs) ? r.songs : [], 'No karaoke version of “' + label + '” found. Roll again!', label);
+      }, Math.max(0, 1200 - (Date.now() - started)));
+    }).catch(function(e){ if (mine !== searchGen) return; box.textContent = ''; box.appendChild(el('div','muted',e.message)); });
+  }
+
+  // [pick]: shown after "Surprise me", with the suggested song first and highlighted
+  function showSongs(list, emptyText, pick){
       var box = $('results'); box.textContent = '';
-      if (!list.length) { box.appendChild(el('div','muted',emptyText)); return; }
+      if (!list.length) {
+        box.appendChild(el('div','muted',emptyText));
+        if (pick != null) { var a0 = el('button','btn ghost again','🎲 Roll again'); a0.type = 'button'; a0.onclick = surprise; box.appendChild(a0); }
+        return;
+      }
+      var n = 0;
       list.forEach(function(v){
         if (!ID.test(v.id)) return;
-        var r = el('div','res');
+        var first = pick != null && n++ === 0;
+        if (first) {
+          var h = el('div','pickhead','🎲 SURPRISE! HOW ABOUT…'); if (pick) h.appendChild(el('small',null,pick));
+          h.setAttribute('role','status'); box.appendChild(h);
+          var rm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+          setTimeout(function(){ try { h.scrollIntoView({ behavior: rm ? 'auto' : 'smooth', block: 'start' }); } catch(e) {} }, 0);
+        }
+        var r = el('div','res' + (first ? ' pick' : ''));
         var img = el('img'); img.loading = 'lazy'; img.alt = ''; img.onerror = function(){ this.style.visibility = 'hidden'; }; img.src = 'https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg';
         var t = el('div','t'); t.appendChild(el('b',null,v.title)); t.appendChild(el('small',null,[v.channel, v.dur, v.views].filter(function(x){ return x; }).join(' · ')));
         var b = el('button','add','+'); b.setAttribute('aria-label','Add ' + v.title + ' to the queue');
         b.onclick = function(){ add(v, b); };
         r.appendChild(img); r.appendChild(t); r.appendChild(b); box.appendChild(r);
+        if (first) {
+          var again = el('button','btn ghost again','🎲 Roll again'); again.type = 'button'; again.onclick = surprise; box.appendChild(again);
+          if (list.length > 1) box.appendChild(el('div','others','OTHER VERSIONS'));
+        }
       });
   }
 
@@ -372,6 +436,47 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
   }
   nameEl.addEventListener('input', function(){ if (topKey !== null) { justLed = false; renderTop(); } });
 
+  // ---- cheers: while someone sings, a tap sends an emoji that floats up on the TV ----
+  // One cheer every few seconds per phone (the bar shows when the next one is ready), so the TV
+  // never fills up and the singer can still read the lyrics.
+  var CHEER_WAIT = 3000, cheerReady = 0, cheerKey = '', cheerTimer = null;
+  function renderCheer(list, who){
+    var box = $('cheer');
+    if (!list.length) { box.hidden = true; return; }
+    box.hidden = false;
+    $('cheerWho').textContent = who;
+    var key = list.join('');
+    if (key === cheerKey) return;
+    cheerKey = key;
+    var btns = $('cheerBtns'); btns.textContent = '';
+    list.forEach(function(e, i){
+      var b = el('button', null, e); b.type = 'button'; b.setAttribute('aria-label', 'Send ' + e + ' to the TV');
+      b.disabled = Date.now() < cheerReady;
+      b.onclick = function(){ cheer(i, e, b); };
+      btns.appendChild(b);
+    });
+  }
+  function cheer(i, emoji, btn){
+    if (Date.now() < cheerReady) return;
+    cheerReady = Date.now() + CHEER_WAIT;
+    var all = $('cheerBtns').querySelectorAll('button');
+    for (var j = 0; j < all.length; j++) all[j].disabled = true;
+    var fill = $('cheerFill'); fill.classList.remove('wait'); void fill.offsetWidth; fill.classList.add('wait');
+    clearTimeout(cheerTimer);
+    cheerTimer = setTimeout(function(){
+      var all2 = $('cheerBtns').querySelectorAll('button');
+      for (var k = 0; k < all2.length; k++) all2[k].disabled = false;
+    }, CHEER_WAIT);
+    // a little one floats up on the phone too
+    var rect = btn.getBoundingClientRect(), f = el('span','fly',emoji);
+    f.setAttribute('aria-hidden','true');
+    f.style.left = (rect.left + rect.width / 2 - 17) + 'px'; f.style.top = (rect.top - 6) + 'px';
+    document.body.appendChild(f); setTimeout(function(){ f.remove(); }, 1100);
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch(e) {} }
+    api('/api/react', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'e=' + i + '&phone=' + PHONE })
+      .catch(function(e){ toast(e.message); });
+  }
+
   function refresh(){
     return api('/api/state').then(function(s){
       failures = 0;
@@ -391,6 +496,8 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
       }
       if (s.now) { $('nowSinger').textContent = s.now.singer + ' is singing'; $('nowSong').textContent = s.now.title; }
       else { $('nowSinger').textContent = 'Waiting for the next singer…'; $('nowSong').textContent = 'Add a song below!'; }
+      var reacts = Array.isArray(s.react) && s.now ? s.react.filter(function(e){ return typeof e === 'string' && e.length <= 8; }).slice(0, 8) : [];
+      renderCheer(reacts, s.now ? s.now.singer : '');
       queueNow = Array.isArray(s.queue) ? s.queue.filter(function(it){ return it && typeof it.singer === 'string' && typeof it.title === 'string'; }) : [];
       renderQueue();
     }).catch(function(){ failures = Math.min(failures + 1, 3); });

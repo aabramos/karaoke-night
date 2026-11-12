@@ -33,6 +33,17 @@ A karaoke app for the big screen, built for parties:
   quick pick that found the song ("🎸 Rock" counts as rock); songs it can't place count for no genre
 - **Opening animation** when the app starts (any button or a tap skips it)
 - **🕘 Played**: the last 10 songs sung, first in the quick picks on the TV and on phones, to sing one again
+- **🎲 Surprise me** (next to 🕘 Played, on the TV and on phones): can't decide? The dice pick a song everyone
+  knows (about 140 karaoke classics, plus local favourites when a party country is set) and show it first.
+  Roll again as often as you like; it won't suggest a song that was just sung
+- **Cheers from the phones**: while someone sings, guests tap 👏 🔥 😍 😂 🎉 🤘 and the emoji floats up the
+  edge of the TV. Kept out of the singer's way: small, see-through, only along the sides, no sound, one
+  cheer every 3 seconds per phone and at most 2 a second on screen for the whole room
+- **🌙 Close the night** (in the lobby): a flashy awards show for tonight. Drumroll and a reveal for each award
+  (Opening act, Marathon singer, Crowd favourite, Steady voice, Badge hunter, Duet of the night, Bravest
+  singer, Closing act; only the ones that fit the night), then the top 3 rise onto a podium and the
+  **Singer of the night** gets a crown, fanfare and confetti. Ends with every award at a glance.
+  OK skips ahead, ◀ goes back, BACK leaves. Nothing is deleted: watch it again any time
 - **Hall of fame**: a podium and the top 8 (with the song each score came from) for tonight, all time and duets, plus achievements. Scores are saved automatically under each singer's name
 - **About** (ℹ️ in the lobby): version number, author and a link (and QR code) to the project page
 - **Works without a YouTube API key** (optional key for extra reliability, see below)
@@ -65,6 +76,7 @@ That's it. The queue is saved, so if someone exits the app by accident, everythi
 5. **Big finish**: in the last second of the song, a "🎤 Big finish!" screen for 5 seconds.
 6. **Score**: drumroll, score, stars, rank of the night and any achievements; 5 seconds later the lobby music fades back in, then
    it's on to the next singer.
+7. **End of the party**: press **🌙** in the lobby for tonight's awards show.
 
 ## Remote controls
 
@@ -77,6 +89,8 @@ That's it. The queue is saved, so if someone exits the app by accident, everythi
 | Lobby | 🏆 button | Hall of fame: tonight, all time, duets, 🏅 achievements (OK on a singer: all their achievements) |
 | Lobby | 🎵 button | Volume: songs and sound effects, lobby music (its own slider), lobby music on/off |
 | Lobby | 🕘 Played chip | The last 10 songs sung, to sing one again |
+| Lobby | 🎲 Surprise me chip | A random song everyone knows (OK again on the chip to re-roll) |
+| Lobby | 🌙 button | Close the night: tonight's awards show (OK = next, ◀ = back, BACK = leave) |
 | Lobby | ℹ️ button | About: version, author, project page |
 | Who's singing? | 👫 Duet / 🎲 / 🗑 / ‹ › | Two singers / surprise name / remove a player (asks first) / more names. Typing filters the names. BACK steps back |
 | Lobby | BACK twice | Exit the app |
@@ -98,12 +112,12 @@ The phone's Back gesture does what BACK does on the remote.
 ## Guests' phones
 
 The TV runs a tiny web page for the party. Guests scan the QR code, tap their name in the players list (or
-type it once), search (or tap **🕘 Played** for the songs sung so far), and tap **+**. For a duet, fill in **Duet partner** too (tap a name while that box
+type it once), search (or tap **🕘 Played** for the songs sung so far, or **🎲 Surprise me** for a random one), and tap **+**. For a duet, fill in **Duet partner** too (tap a name while that box
 is selected; typing filters the names). Phones can't remove players: only the TV can.
 Added a song by mistake? A **✕** appears next to every song that phone added while it's still waiting;
 tap it, then tap **Remove?** to confirm. A phone can only remove its own songs (each phone gets a random ID,
 and the TV only keeps a fingerprint of it), never someone else's or the one being sung.
-Their phones show, from the top: who's singing, **tonight's top 3** (each singer's best score and the song,
+Their phones show, from the top: who's singing (with **cheer buttons** while the song plays), **tonight's top 3** (each singer's best score and the song,
 plus the best duet), the queue (the next 5 plus their own songs; "Show all" for the rest), and then the
 song search, all updated live. Their own spot is highlighted, and a message pops up when someone takes the lead.
 
@@ -113,7 +127,8 @@ song search, all updated live. Their own spot is highlighted, and a message pops
   the QR code. Wrong keys are limited to a few tries a minute, and the key changes after 12 hours (only
   between parties, so phones that already joined keep working). Phones can only add songs that came out
   of the karaoke search. There are limits on request size and time, on how many songs or searches one
-  phone can make per minute, and at most 3 queued songs per singer.
+  phone can make per minute, and at most 3 queued songs per singer. Cheers are limited on the phone
+  (one every 3 seconds), by the TV (one every 2.5 seconds per phone, 20 a minute) and on screen.
 - Big parties: dozens of phones can be connected at once. Each phone asks for updates every few seconds
   (at slightly different moments, less often if the TV doesn't answer, never while the phone is locked),
   the TV answers them all from one copy refreshed every second, and at most 3 searches run at once

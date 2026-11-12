@@ -43,6 +43,10 @@ public final class PartyServer {
         Added add(String videoId, String singer, String partner, String phone, String from);
         /** Removes a waiting song this phone added; returns null on success or a short message. */
         String remove(String key, String phone);
+        /** A cheer from a phone while someone sings ([emoji]: its number); null on success or a short message. */
+        String react(String emoji, String phone);
+        /** JSON object with a random song suggestion ("label", "query") and its search results ("songs"). */
+        String surpriseJson() throws Exception;
         // Removing players is deliberately not offered to phones: only the TV can do that.
     }
 
@@ -215,6 +219,31 @@ public final class PartyServer {
                     } finally {
                         searchSlots.release();
                     }
+                }
+            } else if (method.equals("GET") && path.equals("/api/surprise")) {
+                // Same limits as a search: it is one
+                if (!allow("s" + ip, 20)) {
+                    send(out, 429, "application/json", "{\"error\":\"Slow down a little and try again in a minute\"}");
+                } else if (!searchSlots.tryAcquire()) {
+                    send(out, 503, "application/json", "{\"error\":\"Lots of people are searching. Try again in a few seconds.\"}");
+                } else {
+                    try {
+                        send(out, 200, "application/json; charset=utf-8", b.surpriseJson());
+                    } catch (Exception e) {
+                        send(out, 502, "application/json", "{\"error\":\"The dice fell off the table. Try again!\"}");
+                    } finally {
+                        searchSlots.release();
+                    }
+                }
+            } else if (method.equals("POST") && path.equals("/api/react")) {
+                // The phone waits a few seconds between cheers and the TV spaces them out too; this
+                // is the backstop for a page that has been tampered with
+                if (!allow("r" + ip, 20)) {
+                    send(out, 429, "application/json", "{\"error\":\"Easy there! Give the singer a moment.\"}");
+                } else {
+                    String err = b.react(params.get("e"), params.get("phone"));
+                    send(out, err == null ? 200 : 400, "application/json; charset=utf-8",
+                            err == null ? "{\"ok\":true}" : "{\"error\":" + jsonString(err) + "}");
                 }
             } else if (method.equals("POST") && path.equals("/api/add")) {
                 if (!allow("a" + ip, 8)) {

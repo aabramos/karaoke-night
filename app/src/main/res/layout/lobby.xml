@@ -69,28 +69,36 @@
         <TextView
             android:id="@+id/btnCountry"
             style="@style/IconButton"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:contentDescription="Party country"
             android:text="🌍" />
 
         <TextView
             android:id="@+id/btnBoard"
             style="@style/IconButton"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:contentDescription="Hall of fame"
             android:text="🏆" />
+
+        <!-- The end of the party: tonight's awards, one by one -->
+        <TextView
+            android:id="@+id/btnRecap"
+            style="@style/IconButton"
+            android:layout_marginStart="8dp"
+            android:contentDescription="Close the night: tonight's awards"
+            android:text="🌙" />
 
         <TextView
             android:id="@+id/btnMusic"
             style="@style/IconButton"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:contentDescription="Volume and lobby music"
             android:text="🎵" />
 
         <TextView
             android:id="@+id/btnAbout"
             style="@style/IconButton"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:contentDescription="About this app"
             android:text="ℹ️" />
     </LinearLayout>

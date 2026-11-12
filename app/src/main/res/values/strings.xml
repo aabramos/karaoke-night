@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Karaoke Night</string>
-    <string name="search_hint">🔍  Search a song or artist…</string>
+    <string name="search_hint">🔍  Song or artist…</string>
 </resources>

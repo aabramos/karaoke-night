@@ -68,6 +68,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private lateinit var achievements: AchievementBook
     private lateinit var music: LobbyMusic
     private lateinit var sfx: Sfx
+    private lateinit var cheers: Cheers
 
     // Layers
     private lateinit var stageBg: StageView
@@ -85,6 +86,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private lateinit var qrLayer: View
     private lateinit var countryLayer: View
     private lateinit var volumeLayer: View
+    private lateinit var recapLayer: View
+    private lateinit var stageReactions: ReactionsView
     private lateinit var stageTouch: View
     private lateinit var stageCurtain: View
     private lateinit var toastView: TextView
@@ -111,6 +114,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     // Phones
     private var server: PartyServer? = null
+    private var backend: PartyBackend? = null
     private var partyUrl: String? = null
 
     // Misc state
@@ -168,6 +172,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         io.execute { runCatching { achievements.backfill(board.all()); achievements.backfillNew(board.all()) } }
         music = LobbyMusic(this)
         sfx = Sfx(this).also { it.master = volume / 100f }
+        cheers = Cheers(this)
 
         stageBg = findViewById(R.id.stageBg)
         stageContainer = findViewById(R.id.stageContainer)
@@ -184,6 +189,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         qrLayer = findViewById(R.id.qrLayer)
         countryLayer = findViewById(R.id.countryLayer)
         volumeLayer = findViewById(R.id.volumeLayer)
+        recapLayer = findViewById(R.id.recapLayer)
+        stageReactions = findViewById(R.id.stageReactions)
         stageTouch = findViewById(R.id.stageTouch)
         stageCurtain = findViewById(R.id.stageCurtain)
         toastView = findViewById(R.id.toast)
@@ -195,6 +202,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             findViewById(R.id.lobbyScroll), findViewById(R.id.lobbyResults), columns = 3,
         ) { song, from -> openPicker(song, from) }
         lobbyBrowser.played = { history.all() }
+        setUpDice(lobbyBrowser)
         lobbyBrowser.onResults = { found ->
             if (firstLobbyLoad && found && mode == Mode.LOBBY && !anyOverlayOpen()) lobbyBrowser.focusFirst()
             firstLobbyLoad = false
@@ -206,8 +214,14 @@ class MainActivity : Activity(), PartyBackend.Listener {
             findViewById(R.id.panelScroll), findViewById(R.id.panelResults), columns = 1,
         ) { song, from -> openPicker(song, from) }
         panelBrowser.played = { history.all() }
+        setUpDice(panelBrowser)
 
         click(R.id.btnBoard) { showBoard() }
+        click(R.id.btnRecap) { showRecap() }
+        click(R.id.recapDone) { hideRecap() }
+        click(R.id.recapAgain) { recapGo(0) }
+        // Phones: a tap anywhere moves the show on (the buttons at the end handle their own taps)
+        recapLayer.setOnClickListener { if (!findViewById<View>(R.id.recapEnd).isShown) recapGo(recapStep + 1) }
         click(R.id.boardClose) { hideBoard() }
         click(R.id.achClose) { hideSinger() }
         click(R.id.btnAbout) { showAbout() }
@@ -411,10 +425,14 @@ class MainActivity : Activity(), PartyBackend.Listener {
         if (mode == Mode.SCORE && scoreDone) { ui.removeCallbacks(scoreAutoNext); ui.postDelayed(scoreAutoNext, 1000) }
         if (mode == Mode.SCORE) { ui.removeCallbacks(scoreMusic); ui.postDelayed(scoreMusic, 1500) }
         if (mode == Mode.SINGING && finale) { ui.removeCallbacks(finaleDone); ui.postDelayed(finaleDone, 1500) }
+        if (recapLayer.isShown && recapStep >= 0) recapGo(recapStep)   // replay the moment we left
     }
 
     override fun onStop() {
         stopListening()
+        cheers.save()
+        ui.removeCallbacks(recapAuto)
+        sfx.stop(sfx.drumroll)
         QueueStore.save(prefs, queue)
         ui.removeCallbacks(autopilot)
         ui.removeCallbacks(countdownTick)
@@ -438,6 +456,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         lobbyBrowser.onResults = null
         scoreAnim?.removeAllListeners()
         scoreAnim?.cancel()
+        recapCount?.cancel()
         listOf(scoreLayer, lobby, toastView, intermission).forEach { it.animate().cancel() }
         confetti.clear()
         stageBg.animating = false
@@ -492,6 +511,16 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER ||
             code == KeyEvent.KEYCODE_NUMPAD_ENTER || code == KeyEvent.KEYCODE_BUTTON_A
 
+        // The night recap covers everything: OK / ▶ next, ◀ back one, BACK leaves
+        if (recapLayer.isShown) {
+            if (back) { if (first) hideRecap(); return true }
+            if (findViewById<View>(R.id.recapEnd).isShown) return super.dispatchKeyEvent(e)
+            if (first) when {
+                ok || code == KeyEvent.KEYCODE_DPAD_RIGHT || code == KeyEvent.KEYCODE_MEDIA_NEXT -> recapGo(recapStep + 1)
+                code == KeyEvent.KEYCODE_DPAD_LEFT && recapStep > 0 -> recapGo(recapStep - 1)
+            }
+            return true
+        }
         // Overlays first, topmost first (a confirmation sheet can sit on top of the picker)
         if (sheetLayer.isShown) { if (back) { if (first) cancelSheet(); return true }; return super.dispatchKeyEvent(e) }
         if (pickerLayer.isShown) { if (back) { if (first) pickerBack(); return true }; return super.dispatchKeyEvent(e) }
@@ -1000,6 +1029,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         finale = true
         if (queuePanel.isShown) closePanel()
         updateCurtain()
+        updateLive()
         ui.removeCallbacks(finaleDone)
         ui.postDelayed(finaleDone, FINALE_MS)
     }
@@ -1017,6 +1047,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
         ui.removeCallbacks(finaleDone)
         isPaused = false
         if (!on) stageCurtain.visibility = View.GONE
+        // Guests' cheers only exist over the video; hiding the view frees its emoji pictures
+        if (!on) stageReactions.clear()
+        stageReactions.visibility = if (on) View.VISIBLE else View.GONE
+        updateLive()
     }
 
     /**
@@ -1232,6 +1266,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         ui.removeCallbacks(finaleDone)
         val item = queue.current ?: return goLobby()
         history.add(item.song, item.singer)   // for "🕘 Played", even when stopped early
+        cheers.save()
         val score = Judge.score(fraction) ?: return afterSong()
         mode = Mode.SCORE
         scoreDone = false
@@ -1562,6 +1597,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 else -> Unit
             }
             updateCurtain()
+            updateLive()
         }
 
         override fun onVideoDuration(youTubePlayer: YouTubePlayer, duration: Float) {
@@ -1655,8 +1691,11 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val token = prefs.getString("party_key", null)?.takeIf { !stale }
             ?: newToken().also { prefs.edit().putString("party_key", it).putLong("party_key_time", now).apply() }
         val page = runCatching { assets.open("remote.html").use { it.readBytes() } }.getOrNull() ?: return
-        val s = PartyServer(PartyBackend(queue, search, board, history, this), token, page)
+        val b = PartyBackend(queue, search, board, history, this)
+        val s = PartyServer(b, token, page)
         server = s
+        backend = b
+        updateLive()
         io.execute {
             val port = s.start()
             val ip = lanAddress()
@@ -1672,6 +1711,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     /** Synchronous on purpose: closing a socket is instant, and a queued task could be dropped on exit. */
     private fun stopServer() {
+        backend?.live = false
+        backend = null
         val s = server ?: return
         server = null
         s.stop()
@@ -1707,6 +1748,18 @@ class MainActivity : Activity(), PartyBackend.Listener {
     override fun onPhoneRemoved(item: QueueItem) {
         toast("📱 ${item.singer} took “${item.song.title.take(45)}” out of the queue")
     }
+
+    /** A guest cheered: a small emoji rises along the edge of the video (no sound: the singer is singing). */
+    override fun onReaction(emoji: String) {
+        if (!liveNow()) return
+        cheers.add(queue.current?.singer)
+        stageReactions.cheer(emoji)
+    }
+
+    /** Phones may cheer only while a song is actually playing (not paused, not in the finale). */
+    private fun liveNow() = mode == Mode.SINGING && isPlaying && !isPaused && !finale
+
+    private fun updateLive() { backend?.live = liveNow() }
 
     private fun showBigQr() {
         if (partyUrl == null) { toast("Connect the TV to your home Wi-Fi or network first"); return }
@@ -2248,6 +2301,334 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     // =====================================================================================
+    // 🎲 Surprise me: a random song when nobody knows what to sing
+    // =====================================================================================
+
+    private fun setUpDice(browser: SongBrowser) {
+        browser.dice = { Surprise.roll(search.country, history.all().map { it.song.title.lowercase() }) }
+        // No sounds over a song (the queue panel has the dice too)
+        browser.rolling = { if (mode != Mode.SINGING) sfx.play(sfx.tick, 0.3f) }
+        browser.onSurprise = { song, _ ->
+            if (mode != Mode.SINGING) sfx.play(sfx.reveal, 0.8f)
+            toast("🎲 How about “${shortTitle(song.title).take(45)}”? ${if (isTouch) "Tap" else "OK"} to sing it!")
+        }
+    }
+
+    // =====================================================================================
+    // 🌙 Close the night: tonight's awards one by one, then the podium and a summary.
+    // Nothing is deleted: it's a show, and it can be watched again.
+    // =====================================================================================
+
+    private var recapAwards: List<Award> = emptyList()
+    private var recapTop: List<Entry> = emptyList()
+    private var recapStats: NightStats? = null
+    private var recapStep = -1
+    /** Bumped at every step: delayed effects from an earlier step check it and do nothing. */
+    private var recapGen = 0
+    private var recapCount: ValueAnimator? = null
+
+    private val recapAuto = Runnable { if (recapLayer.isShown) recapGo(recapStep + 1) }
+
+    private fun showRecap() {
+        val entries = board.tonightAll()
+        if (entries.isEmpty()) {
+            toast("🌙 Nobody has sung tonight yet. Sing first, then close the night!")
+            return
+        }
+        val tonightsCheers = cheers.tonight()
+        val night = Achievements.nightOf(System.currentTimeMillis())
+        val unlocked = runCatching {
+            achievements.singers().associate { r -> r.name to r.unlocked.values.count { it == night } }.filterValues { it > 0 }
+        }.getOrDefault(emptyMap())
+        recapAwards = Recap.awards(entries, tonightsCheers, unlocked)
+        recapTop = Recap.podium(entries)
+        recapStats = Recap.stats(entries, tonightsCheers)
+        overlayReturnFocus = currentFocus
+        hideKeyboard()
+        recapLayer.visibility = View.VISIBLE
+        recapLayer.alpha = 0f
+        recapLayer.animate().alpha(1f).setDuration(400).start()
+        stageBg.animating = false             // the recap has its own stage; don't draw two
+        lockFocus()
+        recapGo(0)
+    }
+
+    private fun hideRecap() {
+        recapGen++
+        recapStep = -1
+        ui.removeCallbacks(recapAuto)
+        recapCount?.cancel()
+        sfx.stop(sfx.drumroll)
+        confetti.clear()
+        recapLayer.animate().cancel()
+        recapLayer.visibility = View.GONE
+        findViewById<LinearLayout>(R.id.recapPodium).removeAllViews()
+        findViewById<LinearLayout>(R.id.recapEndGrid).removeAllViews()
+        stageBg.animating = mode != Mode.SINGING
+        restoreFocus()
+        if (currentFocus?.isShown != true) findViewById<View>(R.id.btnRecap).requestFocus()
+    }
+
+    /** Step 0 is the title, then one step per award, the podium, and the summary at the end. */
+    private fun recapGo(step: Int) {
+        recapGen++
+        ui.removeCallbacks(recapAuto)
+        recapCount?.cancel()
+        sfx.stop(sfx.drumroll)
+        stageBg.animating = false
+        val last = recapAwards.size + (if (recapTop.isNotEmpty()) 2 else 1)
+        recapStep = step.coerceIn(0, last)
+        val podiumStep = recapAwards.size + 1
+        findViewById<TextView>(R.id.recapHint).text =
+            if (recapStep == last) "" else if (isTouch) "Tap for the next one" else "OK ▶ next   ·   ◀ back   ·   BACK to leave"
+        when {
+            recapStep == 0 -> recapIntro()
+            recapStep <= recapAwards.size -> recapAward(recapStep - 1)
+            recapStep == podiumStep && recapTop.isNotEmpty() -> recapPodium()
+            else -> recapEnd()
+        }
+    }
+
+    private fun recapStatsLine(fraction: Float = 1f): String {
+        val st = recapStats ?: return ""
+        fun n(v: Int) = Math.round(v * fraction)
+        return listOfNotNull(
+            "🎤 ${n(st.songs)} ${if (st.songs == 1) "song" else "songs"}",
+            "🙋 ${n(st.singers)} ${if (st.singers == 1) "singer" else "singers"}",
+            if (st.duets > 0) "👫 ${n(st.duets)} ${if (st.duets == 1) "duet" else "duets"}" else null,
+            if (st.cheers > 0) "📣 ${n(st.cheers)} cheers" else null,
+        ).joinToString("   ·   ")
+    }
+
+    /** Fills the award card and flips it in. With a [winner], the name is revealed after a short drumroll. */
+    private fun recapCard(kicker: String, icon: String, title: String, winner: String?, detail: String) {
+        val gen = recapGen
+        findViewById<View>(R.id.recapEnd).visibility = View.GONE
+        findViewById<LinearLayout>(R.id.recapPodium).apply { removeAllViews(); visibility = View.GONE }
+        val card = findViewById<View>(R.id.recapCard)
+        val iconView = findViewById<TextView>(R.id.recapIcon)
+        val winnerRow = findViewById<View>(R.id.recapWinner)
+        val detailView = findViewById<TextView>(R.id.recapDetail)
+        val rays = findViewById<RaysView>(R.id.recapRays)
+        card.visibility = View.VISIBLE
+        findViewById<TextView>(R.id.recapKicker).text = kicker
+        iconView.text = icon
+        iconView.visibility = if (icon.isEmpty()) View.GONE else View.VISIBLE
+        findViewById<TextView>(R.id.recapTitle).apply {
+            animate().cancel()
+            text = title
+            scaleX = 1f; scaleY = 1f
+            setShadowLayer(26f, 0f, 0f, getColor(R.color.neon_pink))
+        }
+        detailView.text = detail
+        detailView.visibility = if (detail.isEmpty()) View.GONE else View.VISIBLE
+        winnerRow.visibility = if (winner == null) View.GONE else View.VISIBLE
+        card.contentDescription = listOfNotNull(title, winner, detail.ifEmpty { null }).joinToString(". ")
+
+        // The card flips in
+        card.animate().cancel()
+        card.cameraDistance = 9000 * resources.displayMetrics.density
+        card.alpha = 0f; card.rotationY = -75f; card.scaleX = 0.82f; card.scaleY = 0.82f
+        card.animate().alpha(1f).rotationY(0f).scaleX(1f).scaleY(1f)
+            .setInterpolator(OvershootInterpolator(1.3f)).setDuration(560).start()
+        iconView.animate().cancel()
+        iconView.scaleX = 0f; iconView.scaleY = 0f; iconView.rotation = -30f
+        iconView.animate().scaleX(1f).scaleY(1f).rotation(0f).setStartDelay(160)
+            .setInterpolator(OvershootInterpolator(3f)).setDuration(500).start()
+        sfx.play(sfx.pop, 0.7f)
+        rays.animate().cancel()
+        rays.animate().alpha(0f).setDuration(250).start()
+
+        if (winner == null) {
+            detailView.alpha = 0f
+            detailView.animate().alpha(1f).setStartDelay(500).setDuration(400).start()
+            return
+        }
+        // Drumroll… then the name bursts in, in the winner's own colour, with rays and confetti
+        findViewById<TextView>(R.id.recapAvatar).avatar(winner)
+        findViewById<TextView>(R.id.recapName).apply { text = winner; setTextColor(colorFor(winner)) }
+        winnerRow.animate().cancel()
+        winnerRow.alpha = 0f; winnerRow.scaleX = 0.4f; winnerRow.scaleY = 0.4f
+        detailView.animate().cancel()
+        detailView.alpha = 0f
+        sfx.play(sfx.drumroll, 0.55f)
+        ui.postDelayed({
+            if (gen != recapGen) return@postDelayed
+            sfx.stop(sfx.drumroll)
+            sfx.play(sfx.reveal)
+            winnerRow.animate().alpha(1f).scaleX(1f).scaleY(1f).setInterpolator(OvershootInterpolator(2.6f)).setDuration(480).start()
+            detailView.animate().alpha(1f).setStartDelay(350).setDuration(400).start()
+            rays.color = colorFor(winner)
+            rays.animate().alpha(1f).setDuration(500).start()
+            confetti.burst(90)
+        }, RECAP_REVEAL_MS)
+    }
+
+    private fun recapIntro() {
+        val night = Achievements.nightOf(System.currentTimeMillis())
+        recapCard("KARAOKE NIGHT  ·  ${Achievements.dateOf(night).uppercase()}", "🌙", "THAT'S A WRAP!", null, recapStatsLine(0f))
+        val gen = recapGen
+        sfx.play(sfx.fanfare, 0.8f)
+        confetti.burst(160)
+        // The night's numbers count up
+        recapCount = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1600
+            startDelay = 500
+            interpolator = DecelerateInterpolator(1.6f)
+            addUpdateListener { if (gen == recapGen) findViewById<TextView>(R.id.recapDetail).text = recapStatsLine(it.animatedFraction) }
+            start()
+        }
+        ui.postDelayed(recapAuto, 4500)
+    }
+
+    private fun recapAward(i: Int) {
+        val a = recapAwards[i]
+        recapCard("AWARD ${i + 1} OF ${recapAwards.size}", a.icon, a.title.uppercase(), a.winner, a.detail)
+        ui.postDelayed(recapAuto, RECAP_REVEAL_MS + 3800)
+    }
+
+    /** 3rd, then 2nd, then a long drumroll… and the singer of the night, with everything we've got. */
+    private fun recapPodium() {
+        recapCard("AND NOW, THE MOMENT YOU'VE BEEN WAITING FOR", "", "🏆 TONIGHT'S TOP 3", null, "")
+        val gen = recapGen
+        val podium = findViewById<LinearLayout>(R.id.recapPodium)
+        podium.visibility = View.VISIBLE
+        // Laid out 2nd, 1st, 3rd, like a real podium
+        val columns = HashMap<Int, View>()
+        for (place in listOf(1, 0, 2)) {
+            val e = recapTop.getOrNull(place) ?: continue
+            val col = recapColumn(e, place)
+            columns[place] = col
+            col.alpha = 0f
+            col.translationY = px(70).toFloat()
+            podium.addView(col)
+        }
+        fun rise(place: Int, at: Long, big: Boolean) = ui.postDelayed({
+            if (gen != recapGen) return@postDelayed
+            val col = columns[place] ?: return@postDelayed
+            col.animate().alpha(1f).translationY(0f).setInterpolator(OvershootInterpolator(if (big) 2.2f else 1.6f)).setDuration(600).start()
+            if (!big) { sfx.play(sfx.reveal, 0.8f); confetti.burst(50) }
+        }, at)
+        val third = recapTop.size >= 3
+        val second = recapTop.size >= 2
+        if (third) rise(2, 700, big = false)
+        if (second) rise(1, if (third) 2100 else 700, big = false)
+        val drumAt = if (second) (if (third) 3400L else 2000L) else 600L
+        val firstAt = drumAt + 2800
+        ui.postDelayed({ if (gen == recapGen) sfx.play(sfx.drumroll) }, drumAt)
+        ui.postDelayed({
+            if (gen != recapGen) return@postDelayed
+            sfx.stop(sfx.drumroll)
+            sfx.play(sfx.fanfare)
+            sfx.play(sfx.applause, 0.9f)
+            val champ = recapTop[0]
+            findViewById<TextView>(R.id.recapKicker).text = "SINGER OF THE NIGHT"
+            findViewById<TextView>(R.id.recapTitle).apply {
+                text = "👑 ${champ.name.uppercase()}"
+                setShadowLayer(26f, 0f, 0f, getColor(R.color.gold))
+                scaleX = 1.5f; scaleY = 1.5f
+                animate().scaleX(1f).scaleY(1f).setInterpolator(OvershootInterpolator(3f)).setDuration(600).start()
+            }
+            findViewById<View>(R.id.recapCard).contentDescription = "Singer of the night: ${champ.name}, ${champ.score} points"
+            rise(0, 0, big = true)
+            columns[0]?.findViewWithTag<View>("crown")?.apply {
+                animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(450).setInterpolator(OvershootInterpolator(4f)).setDuration(500).start()
+            }
+            findViewById<RaysView>(R.id.recapRays).apply { color = getColor(R.color.gold); animate().alpha(1f).setDuration(600).start() }
+            confetti.burst(260)
+            ui.postDelayed({ if (gen == recapGen) confetti.burst(160) }, 1000)
+            ui.postDelayed({ if (gen == recapGen) confetti.burst(120) }, 2200)
+        }, firstAt)
+        ui.postDelayed(recapAuto, firstAt + 7000)
+    }
+
+    /** A podium step: crown (1st only), avatar, name, score and a block in the singer's colour. */
+    private fun recapColumn(e: Entry, place: Int): View {
+        val heights = intArrayOf(120, 86, 62)
+        val medals = arrayOf("🥇", "🥈", "🥉")
+        val big = place == 0
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            contentDescription = "${listOf("First", "Second", "Third")[place]} place: ${e.name}, ${e.score} points"
+            addView(TextView(context).apply {
+                tag = "crown"
+                text = if (big) "👑" else ""
+                textSize = 34f
+                gravity = Gravity.CENTER
+                alpha = 0f; scaleX = 0.2f; scaleY = 0.2f
+            })
+            addView(TextView(context).apply {
+                avatar(e.name); gravity = Gravity.CENTER; setTextColor(0xFF0B0614.toInt())
+                textSize = if (big) 30f else 24f; paint.isFakeBoldText = true
+            }, LinearLayout.LayoutParams(px(if (big) 64 else 50), px(if (big) 64 else 50)))
+            addView(label(e.name, if (big) 22f else 18f, R.color.text_main, bold = true).apply { gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(4) })
+            addView(label(e.score.toString(), if (big) 32f else 26f, R.color.gold, bold = true).apply {
+                gravity = Gravity.CENTER
+                typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)
+            })
+            addView(TextView(context).apply {
+                text = medals[place]
+                textSize = if (big) 38f else 30f
+                gravity = Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(colorFor(e.name) and 0x00FFFFFF or 0xCC000000.toInt(), 0x331A1030)
+                ).apply { val r = px(14).toFloat(); cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f) }
+            }, LinearLayout.LayoutParams(px(if (big) 200 else 170), px(heights[place])).apply { topMargin = px(6) })
+        }.also { it.layoutParams = LinearLayout.LayoutParams(px(if (big) 210 else 180), ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(px(8), 0, px(8), 0) } }
+    }
+
+    /** The end: every award at a glance, and the way back to the party. */
+    private fun recapEnd() {
+        findViewById<View>(R.id.recapCard).visibility = View.GONE
+        findViewById<LinearLayout>(R.id.recapPodium).apply { removeAllViews(); visibility = View.GONE }
+        findViewById<RaysView>(R.id.recapRays).animate().alpha(0.35f).setDuration(500).start()
+        findViewById<TextView>(R.id.recapEndSub).text = "Thanks for singing, everyone!   ${recapStatsLine()}"
+        val tiles = ArrayList<Award>()
+        recapTop.firstOrNull()?.let { tiles += Award("👑", "Singer of the night", it.name, "") }
+        tiles += recapAwards
+        val grid = findViewById<LinearLayout>(R.id.recapEndGrid)
+        grid.removeAllViews()
+        tiles.chunked(4).forEach { row ->
+            val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_HORIZONTAL }
+            row.forEach { a ->
+                line.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setBackgroundResource(R.drawable.panel_bg)
+                    setPadding(px(10), px(8), px(10), px(8))
+                    contentDescription = "${a.title}: ${a.winner}"
+                    addView(label(a.icon, 24f, R.color.text_main))
+                    addView(LinearLayout(context).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(px(8), 0, 0, 0)
+                        addView(label(a.title.uppercase(), 10f, R.color.neon_cyan, bold = true).apply { letterSpacing = 0.08f })
+                        addView(label(a.winner, 16f, R.color.text_main, bold = true).apply { setTextColor(colorFor(a.winner)) })
+                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                }, LinearLayout.LayoutParams(px(196), ViewGroup.LayoutParams.WRAP_CONTENT).apply { setMargins(px(5), px(5), px(5), px(5)) })
+            }
+            grid.addView(line)
+        }
+        val end = findViewById<View>(R.id.recapEnd)
+        end.visibility = View.VISIBLE
+        popIn(end)
+        for (i in 0 until grid.childCount) {
+            val line = grid.getChildAt(i) as ViewGroup
+            for (j in 0 until line.childCount) line.getChildAt(j).apply {
+                alpha = 0f; translationY = px(20).toFloat()
+                animate().alpha(1f).translationY(0f).setStartDelay(200L + (i * 4 + j) * 90L).setDuration(320).start()
+            }
+        }
+        sfx.play(sfx.applause, 0.7f)
+        confetti.burst(140)
+        lockFocus()
+        findViewById<View>(R.id.recapDone).requestFocus()
+    }
+
+    // =====================================================================================
     // Generic overlays: action sheet, toast
     // =====================================================================================
 
@@ -2287,13 +2668,14 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private fun hideAllOverlays() {
         listOf(pickerLayer, sheetLayer, boardLayer, qrLayer, volumeLayer, aboutLayer, achLayer).forEach { it.visibility = View.GONE }
+        if (recapLayer.isShown) hideRecap()
         if (countryLayer.isShown) hideCountries()
         hideKeyboard()
         lockFocus()
     }
 
     private fun anyOverlayOpen() = pickerLayer.isShown || sheetLayer.isShown || boardLayer.isShown || qrLayer.isShown ||
-        countryLayer.isShown || volumeLayer.isShown || aboutLayer.isShown || achLayer.isShown
+        countryLayer.isShown || volumeLayer.isShown || aboutLayer.isShown || achLayer.isShown || recapLayer.isShown
 
     /**
      * While a pop-up is open, nothing behind it can take the remote's focus: ▲ ▼ ◀ ▶ stay
@@ -2304,8 +2686,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val rule = if (block) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
         listOf(lobby, queuePanel, hud, intermission).forEach { (it as? ViewGroup)?.descendantFocusability = rule }
         // Pop-ups stacked on another (a sheet over the picker) only keep the top one reachable
-        val top = listOf(volumeLayer, aboutLayer, achLayer, sheetLayer, countryLayer, qrLayer, boardLayer, pickerLayer).firstOrNull { it.isShown }
-        listOf(pickerLayer, boardLayer, qrLayer, countryLayer, sheetLayer, volumeLayer, aboutLayer, achLayer).forEach {
+        val top = listOf(recapLayer, volumeLayer, aboutLayer, achLayer, sheetLayer, countryLayer, qrLayer, boardLayer, pickerLayer).firstOrNull { it.isShown }
+        listOf(pickerLayer, boardLayer, qrLayer, countryLayer, sheetLayer, volumeLayer, aboutLayer, achLayer, recapLayer).forEach {
             (it as? ViewGroup)?.descendantFocusability =
                 if (top == null || it === top) ViewGroup.FOCUS_AFTER_DESCENDANTS else ViewGroup.FOCUS_BLOCK_DESCENDANTS
         }
@@ -2371,6 +2753,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         const val FINALE_MS = 5000L
         /** The lobby music fades back in this long after the score lands. */
         const val SCORE_MUSIC_DELAY_MS = 5000L
+        /** In the night recap, how long the drumroll lasts before each winner's name appears. */
+        const val RECAP_REVEAL_MS = 1500L
         /** Genre chips per row on a singer's achievements (two rows for all 17). */
         const val GENRES_PER_ROW = 9
         const val PROJECT_URL = "https://github.com/aabramos/karaoke-night/"

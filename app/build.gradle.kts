@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 // Optional settings live in local.properties (never commit it):
@@ -27,8 +26,8 @@ android {
         applicationId = "com.karaoketv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 23
-        versionName = "3.17"
+        versionCode = 25
+        versionName = "3.19"
         buildConfigField("String", "YOUTUBE_API_KEY", "\"${localProps.getProperty("YOUTUBE_API_KEY", "").trim()}\"")
     }
 
@@ -62,9 +61,17 @@ android {
         buildConfig = true
     }
 
+    // Kotlin follows this too (built-in Kotlin takes its JVM target from targetCompatibility)
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    // The Kotlin files live next to the two Java files in src/main/java
+    sourceSets {
+        named("main") {
+            kotlin.directories += "src/main/java"
+        }
     }
 
     packaging {
@@ -81,12 +88,6 @@ android {
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
-    }
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 

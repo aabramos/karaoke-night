@@ -199,7 +199,16 @@ class PartyBackend(
     interface Listener {
         fun onPhoneAdded(item: QueueItem)
         fun onPhoneRemoved(item: QueueItem)
+        /** A guest cheered from their phone (only sent while a song is playing). */
+        fun onReaction(emoji: String)
     }
+
+    /** Set by the screen: phones can cheer only while a song is actually playing. */
+    @Volatile var live = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+
+    // When each phone last cheered (by fingerprint), to space them out
+    private val lastCheer = HashMap<String, Long>()
 
     private val listener = WeakReference(listener)
     private val main = Handler(Looper.getMainLooper())
@@ -229,6 +238,8 @@ class PartyBackend(
     private fun buildState(): String {
         val o = JSONObject()
         queue.current?.let { o.put("now", JSONObject().put("singer", it.singer).put("title", it.song.title)) }
+        // While a song plays, the phones show these cheer buttons
+        if (live && queue.current != null) o.put("react", JSONArray().also { a -> REACTIONS.forEach { a.put(it) } })
         val arr = JSONArray()
         // "k": each song's key, so the phone that added a song can offer to remove it
         queue.snapshot().forEach { arr.put(JSONObject().put("singer", it.singer).put("title", it.song.title).put("k", it.key)) }
@@ -274,6 +285,37 @@ class PartyBackend(
         return PartyServer.Added.ok(item.key)
     }
 
+    override fun react(emoji: String?, phone: String?): String? {
+        val e = REACTIONS.getOrNull(emoji?.toIntOrNull() ?: -1) ?: return "That cheer isn't available."
+        if (!live) return "Cheers work while someone is singing."
+        val owner = ownerTag(phone) ?: return "Reload the page and try again."
+        val now = android.os.SystemClock.elapsedRealtime()
+        synchronized(lastCheer) {
+            val last = lastCheer[owner]
+            if (last != null && now - last < CHEER_GAP_MS) return "Easy there! One cheer every few seconds."
+            if (lastCheer.size >= 300) {
+                val old = lastCheer.entries.iterator()
+                while (old.hasNext()) if (now - old.next().value > 60_000) old.remove()
+                if (lastCheer.size >= 300) return "Lots of cheering going on! Try again in a moment."
+            }
+            lastCheer[owner] = now
+        }
+        main.post { listener.get()?.onReaction(e) }
+        return null
+    }
+
+    override fun surpriseJson(): String {
+        val recent = history.all().map { it.song.title.lowercase() }
+        val roll = Surprise.roll(search.country, recent)
+        val songs = Surprise.arrange(roll, search.search(roll.query))
+        val arr = JSONArray()
+        songs.forEach {
+            arr.put(JSONObject().put("id", it.id).put("title", it.title).put("channel", it.channel).put("dur", it.duration)
+                .put("views", viewsLabel(it.views)))
+        }
+        return JSONObject().put("label", roll.label).put("query", roll.query).put("songs", arr).toString()
+    }
+
     override fun remove(key: String?, phone: String?): String? {
         val k = key?.toLongOrNull() ?: return "That song can't be removed."
         val owner = ownerTag(phone) ?: return "Only the phone that added a song can remove it."
@@ -287,6 +329,12 @@ class PartyBackend(
 }
 
 private const val STATE_CACHE_MS = 1000L
+
+/** The cheers guests can send from their phones (the phone sends the number). */
+val REACTIONS = listOf("👏", "🔥", "😍", "😂", "🎉", "🤘")
+
+/** A phone can cheer once every this many milliseconds (the page itself waits a little longer). */
+const val CHEER_GAP_MS = 2500L
 
 /**
  * Saves the queue (including whoever is on stage) so an accidental exit or crash doesn't lose it.

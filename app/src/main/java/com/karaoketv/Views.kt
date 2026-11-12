@@ -283,7 +283,7 @@ class ReactionsView @JvmOverloads constructor(context: Context, attrs: Attribute
 
     private class Bubble(
         val x: Float, var y: Float, val vy: Float, val sway: Float, val phase: Float,
-        val size: Float, val bmp: Bitmap, var age: Float, val life: Float
+        val size: Float, val bmp: Bitmap, var age: Float, val life: Float, val alpha: Float = 1f
     )
 
     private val bubbles = ArrayList<Bubble>()
@@ -317,6 +317,30 @@ class ReactionsView @JvmOverloads constructor(context: Context, attrs: Attribute
         invalidate()
     }
 
+    // Guests' cheers: a token bucket, so a room full of phones can never flood the screen
+    private var tokens = GUEST_BURST.toFloat()
+    private var tokensAt = 0L
+
+    /**
+     * One cheer from a guest's phone: a small, slightly see-through emoji rising along the very
+     * edge of the screen, away from the lyrics. At most [GUEST_PER_SECOND] a second (with a short
+     * burst allowed) and [GUEST_MAX] on screen; extra cheers are dropped. Returns false if dropped.
+     */
+    fun cheer(emoji: String): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        tokens = min(GUEST_BURST.toFloat(), tokens + (now - tokensAt) / 1000f * GUEST_PER_SECOND)
+        tokensAt = now
+        if (tokens < 1f || bubbles.size >= GUEST_MAX || width <= 0 || emoji.isEmpty()) return false
+        tokens -= 1f
+        spawn(emoji, guest = true)
+        if (!running) {
+            running = true
+            lastFrame = System.nanoTime()
+            postInvalidateOnAnimation()
+        }
+        return true
+    }
+
     // Hidden (the score screen closed): stop and free the emoji pictures (about 1 MB on a 4K TV)
     override fun onVisibilityAggregated(isVisible: Boolean) {
         super.onVisibilityAggregated(isVisible)
@@ -343,19 +367,20 @@ class ReactionsView @JvmOverloads constructor(context: Context, attrs: Attribute
         bmp
     }
 
-    private fun spawn() {
+    private fun spawn(emoji: String = emojis[Random.nextInt(emojis.size)], guest: Boolean = false) {
         val w = width.toFloat(); val h = height.toFloat()
         if (w <= 0f || h <= 0f || bubbles.size >= MAX) return
         val d = resources.displayMetrics.density
-        val size = (30 + Random.nextFloat() * 22) * d
-        // Alternate sides, so the score in the middle stays the centre of attention
+        // Guests' cheers are smaller and hug the edges: the singer still has to read the lyrics
+        val size = (if (guest) 26 + Random.nextFloat() * 12 else 30 + Random.nextFloat() * 22) * d
+        // Alternate sides, so the middle of the screen stays the centre of attention
         left = !left
-        val edge = w * (0.015f + Random.nextFloat() * 0.11f)
+        val edge = w * (if (guest) 0.012f + Random.nextFloat() * 0.045f else 0.015f + Random.nextFloat() * 0.11f)
         bubbles += Bubble(
             x = if (left) edge else w - edge, y = h + size,
-            vy = (70 + Random.nextFloat() * 60) * d, sway = (8 + Random.nextFloat() * 14) * d,
-            phase = Random.nextFloat() * 6.28f, size = size, bmp = bitmapFor(emojis[Random.nextInt(emojis.size)]),
-            age = 0f, life = 3.6f + Random.nextFloat() * 1.6f
+            vy = (70 + Random.nextFloat() * 60) * d, sway = (if (guest) 4 + Random.nextFloat() * 6 else 8 + Random.nextFloat() * 14) * d,
+            phase = Random.nextFloat() * 6.28f, size = size, bmp = bitmapFor(emoji),
+            age = 0f, life = 3.6f + Random.nextFloat() * 1.6f, alpha = if (guest) 0.85f else 1f
         )
     }
 
@@ -375,7 +400,7 @@ class ReactionsView @JvmOverloads constructor(context: Context, attrs: Attribute
             val t = b.age / b.life
             // pop in, float, fade out near the top of its path
             val grow = min(1f, b.age / 0.25f)
-            paint.alpha = (255 * min(1f, (1f - t) / 0.35f)).toInt().coerceIn(0, 255)
+            paint.alpha = (255 * b.alpha * min(1f, (1f - t) / 0.35f)).toInt().coerceIn(0, 255)
             val s = b.size * (0.6f + 0.4f * grow)
             val x = b.x + sin(b.phase + b.age * 2.4f) * b.sway
             box.set(x - s / 2, b.y - s / 2, x + s / 2, b.y + s / 2)
@@ -384,5 +409,59 @@ class ReactionsView @JvmOverloads constructor(context: Context, attrs: Attribute
         if (perSecond > 0f || bubbles.isNotEmpty()) postInvalidateOnAnimation() else running = false
     }
 
-    private companion object { const val MAX = 40 }
+    private companion object {
+        const val MAX = 40
+        const val GUEST_MAX = 12
+        const val GUEST_PER_SECOND = 2f
+        const val GUEST_BURST = 4
+    }
+}
+
+/**
+ * Slowly turning rays of light behind an award winner, like a game-show reveal. One gradient,
+ * one path, drawn at about 30 fps and only while on screen.
+ */
+class RaysView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rays = Path()
+    private var start = System.nanoTime()
+
+    /** The colour of the light (the winner's colour); fades to nothing at the edge. */
+    var color: Int = 0xFFFFD23F.toInt()
+        set(v) { field = v; rebuild(); invalidate() }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) = rebuild()
+
+    private fun rebuild() {
+        val w = width.toFloat(); val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val r = max(w, h) * 0.75f
+        val c = color and 0x00FFFFFF
+        paint.shader = RadialGradient(0f, 0f, r, intArrayOf(c or 0x66000000, c or 0x22000000, c), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
+        rays.reset()
+        val n = 14
+        val half = (Math.PI / n / 2.2).toFloat()
+        for (i in 0 until n) {
+            val a = (2 * Math.PI * i / n).toFloat()
+            rays.moveTo(0f, 0f)
+            rays.lineTo(cos(a - half) * r, sin(a - half) * r)
+            rays.lineTo(cos(a + half) * r, sin(a + half) * r)
+            rays.close()
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val t = (System.nanoTime() - start) / 1e9f
+        canvas.save()
+        canvas.translate(width / 2f, height / 2f)
+        canvas.rotate(t * 9f)
+        canvas.drawPath(rays, paint)
+        canvas.restore()
+        if (isShown) postInvalidateDelayed(33)
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (visibility == VISIBLE) invalidate()
+    }
 }
