@@ -8,7 +8,6 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.net.ConnectivityManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -17,6 +16,7 @@ import android.os.StrictMode
 import android.speech.RecognizerIntent
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -38,7 +38,6 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
-import java.net.Inet4Address
 import java.security.SecureRandom
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -111,11 +110,20 @@ class MainActivity : Activity(), PartyBackend.Listener {
     /** Phone or tablet: show buttons instead of remote hints. */
     private var isTouch = false
     private var volume = 80
+    /** Sound effects (countdown, drumroll, score, pops), 0-100: its own slider since 3.20. */
+    private var fxVolume = 80
 
     // Phones
     private var server: PartyServer? = null
     private var backend: PartyBackend? = null
     private var partyUrl: String? = null
+    private var serverPort = 0
+    private var partyToken: String? = null
+    /** Internet (for YouTube) and the TV's address on the Wi-Fi (for the phones). */
+    private lateinit var net: Connection
+    private var wasOffline = false
+    /** The current song is on hold until the internet is back (then it starts again from "Next up"). */
+    private var waitingForNet = false
 
     // Misc state
     private var lastInteraction = System.currentTimeMillis()
@@ -161,6 +169,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
         volume = prefs.getInt("music_volume", 80)
+        fxVolume = prefs.getInt("fx_volume", volume)   // until set, the effects follow the old shared volume
         queue = PartyQueue(ui).also { it.onChanged = ::onQueueChanged }
         search = SongSearch(this).also {
             it.country = runCatching { Countries.byCode(prefs.getString("country", "")) }.getOrDefault(Countries.INTERNATIONAL)
@@ -171,8 +180,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
         // First run of this version: award achievements for the scores already saved (off the main thread)
         io.execute { runCatching { achievements.backfill(board.all()); achievements.backfillNew(board.all()) } }
         music = LobbyMusic(this)
-        sfx = Sfx(this).also { it.master = volume / 100f }
+        sfx = Sfx(this).also { it.master = fxVolume / 100f }
         cheers = Cheers(this)
+        net = Connection(this, io) { onNetworkChanged() }
 
         stageBg = findViewById(R.id.stageBg)
         stageContainer = findViewById(R.id.stageContainer)
@@ -202,6 +212,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             findViewById(R.id.lobbyScroll), findViewById(R.id.lobbyResults), columns = 3,
         ) { song, from -> openPicker(song, from) }
         lobbyBrowser.played = { history.all() }
+        lobbyBrowser.onOffline = { net.suspect() }
         setUpDice(lobbyBrowser)
         lobbyBrowser.onResults = { found ->
             if (firstLobbyLoad && found && mode == Mode.LOBBY && !anyOverlayOpen()) lobbyBrowser.focusFirst()
@@ -214,6 +225,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             findViewById(R.id.panelScroll), findViewById(R.id.panelResults), columns = 1,
         ) { song, from -> openPicker(song, from) }
         panelBrowser.played = { history.all() }
+        panelBrowser.onOffline = { net.suspect() }
         setUpDice(panelBrowser)
 
         click(R.id.btnBoard) { showBoard() }
@@ -262,6 +274,25 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 override fun onStopTrackingTouch(bar: SeekBar) { setVolumeTo(bar.progress) }
             })
         }
+        findViewById<SeekBar>(R.id.fxSlider).apply {
+            keyProgressIncrement = 5
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
+                    if (!fromUser) return
+                    fxVolume = value
+                    sfx.master = value / 100f
+                    findViewById<TextView>(R.id.fxValue).text = "$value%"
+                }
+                override fun onStartTrackingTouch(bar: SeekBar) {}
+                // Let them hear it
+                override fun onStopTrackingTouch(bar: SeekBar) { sfx.play(sfx.pop) }
+            })
+            // ◀ ▶ on the remote: a little pop at each step, at the new level
+            setOnKeyListener { _, code, ev ->
+                if (ev.action == KeyEvent.ACTION_UP && (code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT)) sfx.play(sfx.pop)
+                false
+            }
+        }
         // The lobby music has its own slider (it plays under conversations, so usually much lower)
         findViewById<SeekBar>(R.id.lobbySlider).apply {
             keyProgressIncrement = 5
@@ -279,8 +310,19 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
         click(R.id.btnStart) { startNext() }
         click(R.id.btnPanelAdd) { panelSearchMode() }
-        click(R.id.pickerGo) { confirmPicker(findViewById<EditText>(R.id.pickerInput).text.toString()) }
+        click(R.id.pickerGo) { pickerGo() }
         click(R.id.pickerCancel) { closePicker() }
+        click(R.id.pickerSolo) { setPickerMode(duet = false) }
+        click(R.id.pickerDuet) { setPickerMode(duet = true) }
+        click(R.id.pickerRandom) { addNewPlayer(randomStageName()) }
+        click(R.id.pickerRemove) {
+            pickerRemove = !pickerRemove
+            if (pickerRemove) pickerChosen.clear()
+            clearPickerInput()
+            renderPicker(focus = if (pickerRemove) R.id.pickerNames else R.id.pickerRemove)
+        }
+        click(R.id.pickerPrev) { pickerPage--; renderPickerNames(); findViewById<View>(R.id.pickerPrev).let { if (it.isEnabled) it.requestFocus() else findViewById<View>(R.id.pickerNext).requestFocus() } }
+        click(R.id.pickerNext) { pickerPage++; renderPickerNames(); findViewById<View>(R.id.pickerNext).let { if (it.isEnabled) it.requestFocus() else findViewById<View>(R.id.pickerPrev).requestFocus() } }
         for ((tab, view) in listOf(R.id.tabTonight to BoardView.TONIGHT, R.id.tabAll to BoardView.ALL,
                 R.id.tabDuets to BoardView.DUETS, R.id.tabAch to BoardView.ACHIEVEMENTS)) {
             click(tab) { renderBoard(view) }
@@ -291,11 +333,14 @@ class MainActivity : Activity(), PartyBackend.Listener {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
-                if (!pickerTyping && pickerLayer.isShown && !pickerRemove) { pickerPage = 0; renderPickerNames(focusFirst = false) }
+                if (!pickerTyping && pickerLayer.isShown && !pickerRemove) { pickerPage = 0; renderPickerNames() }
             }
         })
         findViewById<EditText>(R.id.pickerInput).setOnEditorActionListener { v, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) { confirmPicker(v.text.toString()); true } else false
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                if (cleanName(v.text.toString()) != null) addNewPlayer(v.text.toString()) else hideKeyboard()
+                true
+            } else false
         }
 
         setUpTouch()
@@ -416,7 +461,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     override fun onStart() {
         super.onStart()
+        net.start()
         startServer()
+        onNetworkChanged()
         if (mode == Mode.LOBBY || mode == Mode.INTERMISSION) music.start()
         stageBg.animating = mode != Mode.SINGING
         ui.postDelayed(autopilot, 5000)
@@ -440,6 +487,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         ui.removeCallbacks(scoreMusic)
         ui.removeCallbacks(finaleDone)
         stopServer()
+        net.stop()
         music.stop(0)
         if (mode == Mode.SINGING) player?.pause()
         stageBg.animating = false
@@ -700,9 +748,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
     // Singer picker ("Who's singing?")
     // =====================================================================================
 
-    /** Duet mode in the picker: two people are chosen one after the other. */
+    /** Duet mode in the picker: two players are chosen. */
     private var pickerDuet = false
-    private var duetFirst: String? = null
+    /** The players chosen so far, in order (one for solo, two for a duet). */
+    private val pickerChosen = ArrayList<String>()
+    /** Names made in the pop-up (typed or random) that aren't saved players yet: shown first. */
+    private val pickerNew = ArrayList<String>()
     /** Remove mode: tapping a player asks to remove them (and their scores). */
     private var pickerRemove = false
     /** Which page of names is showing (many players), and a guard while the box is cleared. */
@@ -713,130 +764,201 @@ class MainActivity : Activity(), PartyBackend.Listener {
         pickerSong = song
         pickerFrom = from
         pickerDuet = false
-        duetFirst = null
         pickerRemove = false
+        pickerChosen.clear()
+        pickerNew.clear()
         overlayReturnFocus = currentFocus
-        findViewById<TextView>(R.id.pickerSong).text = song.title
+        clearPickerInput()
         pickerLayer.visibility = View.VISIBLE
         popIn(pickerLayer)
-        renderPicker()
+        renderPicker(focus = R.id.pickerNames)
     }
 
-    /** Names, duet and surprise buttons, title and the Add button, for the current step. */
-    private fun renderPicker() {
-        val input = findViewById<EditText>(R.id.pickerInput)
+    private fun clearPickerInput() {
         pickerTyping = true
-        input.setText("")
+        findViewById<EditText>(R.id.pickerInput).setText("")
         pickerTyping = false
         pickerPage = 0
-        val first = duetFirst
-        findViewById<TextView>(R.id.pickerTitle).text = when {
-            pickerRemove -> "🗑 REMOVE A PLAYER"
-            !pickerDuet -> "🎤 WHO'S SINGING?"
-            first == null -> "👫 DUET: WHO'S FIRST?"
-            else -> "👫 WHO SINGS WITH ${first.uppercase()}?"
-        }
+    }
+
+    private fun pickerNeeds() = if (pickerDuet) 2 else 1
+
+    /**
+     * Everything in the pop-up for the current state. [focus]: what gets the remote's focus
+     * afterwards (R.id.pickerNames = the first name, or the box when there are none yet).
+     */
+    private fun renderPicker(focus: Int = 0) {
+        val remove = pickerRemove
+        findViewById<TextView>(R.id.pickerTitle).text = if (remove) "🗑 REMOVE PLAYERS" else "🎤 WHO'S SINGING?"
         findViewById<TextView>(R.id.pickerSong).text =
-            if (pickerRemove) "Choose who to remove. Their scores and achievements are deleted too." else pickerSong?.title.orEmpty()
-        findViewById<View>(R.id.pickerInputRow).visibility = if (pickerRemove) View.GONE else View.VISIBLE
-        findViewById<View>(R.id.pickerCancel).visibility = if (pickerRemove) View.GONE else View.VISIBLE
-        val singNow = mode == Mode.LOBBY && queue.isEmpty()
-        findViewById<TextView>(R.id.pickerGo).text = when {
-            pickerDuet && first == null -> "Next ›"
-            singNow -> "🎤 Sing now!"
-            else -> "＋ Add"
+            if (remove) "Tap a player to remove them. Their scores and achievements are deleted too." else pickerSong?.title.orEmpty()
+        findViewById<View>(R.id.pickerModeRow).visibility = if (remove) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.pickerSolo).isSelected = !pickerDuet
+        findViewById<View>(R.id.pickerDuet).isSelected = pickerDuet
+        findViewById<TextView>(R.id.pickerSolo).text = if (!pickerDuet) "✓ 🎤 Solo" else "🎤 Solo"
+        findViewById<TextView>(R.id.pickerDuet).text = if (pickerDuet) "✓ 👫 Duet" else "👫 Duet"
+        findViewById<TextView>(R.id.pickerPlayersLabel).text = when {
+            remove -> "PLAYERS"
+            pickerDuet -> "PLAYERS  ·  PICK TWO"
+            else -> "PLAYERS  ·  PICK ONE"
         }
-        renderPickerNames(focusFirst = true)
+        findViewById<View>(R.id.pickerRandom).visibility = if (remove) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.pickerInput).visibility = if (remove) View.INVISIBLE else View.VISIBLE
+        findViewById<TextView>(R.id.pickerRemove).apply {
+            text = if (remove) "✓ Done" else "🗑 Remove"
+            visibility = if (remove || board.players().isNotEmpty()) View.VISIBLE else View.GONE
+        }
+        findViewById<View>(R.id.pickerCancel).visibility = if (remove) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.pickerGo).visibility = if (remove) View.GONE else View.VISIBLE
+        renderPickerSummary()
+        renderPickerNames()
+        lockFocus()
+        when (focus) {
+            0 -> Unit
+            R.id.pickerNames -> {
+                val firstName = (findViewById<LinearLayout>(R.id.pickerNames).getChildAt(0) as? ViewGroup)?.getChildAt(0)
+                (firstName ?: findViewById<View>(if (remove) R.id.pickerRemove else R.id.pickerInput)).requestFocus()
+            }
+            else -> findViewById<View>(focus)?.takeIf { it.isShown }?.requestFocus()
+        }
+    }
+
+    /** "🎤 Ana" / "👫 Ana & …" and the button: Sing now! when nobody is waiting, Add otherwise. */
+    private fun renderPickerSummary() {
+        val chosen = pickerChosen
+        findViewById<TextView>(R.id.pickerSummary).apply {
+            text = when {
+                pickerRemove -> ""
+                chosen.isEmpty() -> if (pickerDuet) "Pick two players" else "Pick a player"
+                pickerDuet && chosen.size == 1 -> "👫 ${chosen[0]} & …"
+                pickerDuet -> "👫 ${chosen.joinToString(DUET_JOIN)}"
+                else -> "🎤 ${chosen[0]}"
+            }
+            setTextColor(getColor(if (chosen.size >= pickerNeeds()) R.color.text_main else R.color.text_dim))
+        }
+        val ready = pickerChosen.size >= pickerNeeds()
+        findViewById<TextView>(R.id.pickerGo).apply {
+            text = if (mode == Mode.LOBBY && queue.isEmpty()) "🎤 Sing now!" else "＋ Add to queue"
+            alpha = if (ready) 1f else 0.55f
+        }
     }
 
     /**
-     * The name buttons. With many players: typing in the box filters them (names starting with
-     * the text first), and remove mode pages through everyone, 8 at a time.
+     * The name buttons, eight at a time: new names first, then whoever is in the queue, then saved
+     * players. Typing in the box filters them (names starting with the text first).
      */
-    private fun renderPickerNames(focusFirst: Boolean) {
-        val first = duetFirst
+    private fun renderPickerNames() {
         val typed = findViewById<EditText>(R.id.pickerInput).text.toString().trim().lowercase()
         val all = (if (pickerRemove) board.players()
-        else queue.snapshot().flatMap { it.singer.split(DUET_JOIN) } +
+        else pickerNew + queue.snapshot().flatMap { it.singer.split(DUET_JOIN) } +
             (queue.current?.singer?.split(DUET_JOIN) ?: emptyList()) + board.players())
             .distinctBy { it.lowercase() }
-            .filter { !it.equals(first, ignoreCase = true) }
         val matching = if (typed.isEmpty() || pickerRemove) all
         else all.filter { it.lowercase().startsWith(typed) } + all.filter { it.lowercase().let { n -> !n.startsWith(typed) && n.contains(typed) } }
-        val perPage = if (pickerRemove) 8 else 6
+        val perPage = 8
         val pages = maxOf(1, (matching.size + perPage - 1) / perPage)
         pickerPage = pickerPage.coerceIn(0, pages - 1)
         val names = matching.drop(pickerPage * perPage).take(perPage)
 
         val box = findViewById<LinearLayout>(R.id.pickerNames)
         box.removeAllViews()
-        names.chunked(if (pickerRemove) 4 else 3).forEach { rowNames ->
+        names.chunked(4).forEach { rowNames ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
             rowNames.forEach { name ->
-                row.addView(styledButton(if (pickerRemove) "✕ $name" else name, false).apply {
-                    maxWidth = px(if (pickerRemove) 135 else 170)   // long names get "…" instead of pushing the row off screen
+                val chosen = pickerChosen.any { it.equals(name, ignoreCase = true) }
+                row.addView(styledButton(if (pickerRemove) "✕ $name" else if (chosen) "✓ $name" else name, false).apply {
+                    minWidth = px(140)
+                    maxWidth = px(152)   // long names get "…" instead of pushing the row off screen
                     ellipsize = android.text.TextUtils.TruncateAt.END
-                    setOnClickListener { if (pickerRemove) askRemovePlayer(name) else confirmPicker(name) }
-                },
-                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(52)).apply { setMargins(px(5), px(5), px(5), px(5)) })
+                    isSelected = chosen
+                    contentDescription = if (pickerRemove) "Remove $name" else if (chosen) "$name, chosen" else name
+                    setOnClickListener { if (pickerRemove) askRemovePlayer(name) else togglePlayer(name) }
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(46)).apply { setMargins(px(5), px(4), px(5), px(4)) })
             }
             box.addView(row)
         }
-        if (names.isEmpty() && typed.isNotEmpty()) box.addView(label("New singer: press ${if (isTouch) "Add" else "OK"} to add \"${typed.take(20)}\"", 15f, R.color.text_dim).apply { gravity = Gravity.CENTER })
-        // Own row: page buttons, duet switch, a one-click fun stage name, remove players
-        val extras = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        val lp = { LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(52)).apply { setMargins(px(5), px(5), px(5), px(5)) } }
-        if (pages > 1) {
-            extras.addView(styledButton("‹", false).apply {
-                minWidth = px(52); contentDescription = "Previous names"
-                isEnabled = pickerPage > 0; alpha = if (isEnabled) 1f else 0.35f
-                setOnClickListener { pickerPage--; renderPickerNames(focusFirst = false); findViewById<View>(R.id.pickerPrev)?.requestFocus() }
-                id = R.id.pickerPrev
-            }, lp())
-            extras.addView(label("${pickerPage + 1}/$pages", 14f, R.color.text_dim).apply { gravity = Gravity.CENTER; setPadding(px(4), 0, px(4), 0) })
-            extras.addView(styledButton("›", false).apply {
-                minWidth = px(52); contentDescription = "More names"
-                isEnabled = pickerPage < pages - 1; alpha = if (isEnabled) 1f else 0.35f
-                setOnClickListener { pickerPage++; renderPickerNames(focusFirst = false); findViewById<View>(R.id.pickerNext)?.requestFocus() }
-                id = R.id.pickerNext
-            }, lp())
-        }
-        if (pickerRemove) {
-            if (all.isEmpty()) box.addView(label("No saved players.", 16f, R.color.text_dim).apply { gravity = Gravity.CENTER })
-            extras.addView(styledButton("✓ Done", true).apply { setOnClickListener { pickerRemove = false; renderPicker() } }, lp())
-        } else {
-            if (first == null) {
-                extras.addView(styledButton(if (pickerDuet) "🎤 Solo" else "👫 Duet", false).apply {
-                    setOnClickListener { pickerDuet = !pickerDuet; duetFirst = null; renderPicker() }
-                }, lp())
-            }
-            extras.addView(styledButton("🎲 Surprise", false).apply {
-                contentDescription = "Surprise stage name"
-                setOnClickListener { confirmPicker(randomStageName()) }
-            }, lp())
-            if (first == null && board.players().isNotEmpty()) {
-                extras.addView(styledButton("🗑", false).apply {
-                    contentDescription = "Remove a player"
-                    setOnClickListener { pickerRemove = true; pickerDuet = false; renderPicker() }
-                }, lp())
-            }
-        }
-        box.addView(extras)
-        box.visibility = View.VISIBLE
-        lockFocus()
-        if (focusFirst) {
-            val firstName = (box.getChildAt(0) as? ViewGroup)?.getChildAt(0)
-            (firstName ?: findViewById<EditText>(R.id.pickerInput)).requestFocus()
-        }
+        if (names.isEmpty()) box.addView(label(when {
+            pickerRemove -> "No saved players."
+            typed.isNotEmpty() -> "New player: press ${if (isTouch) "Done" else "OK"} to add “${typed.take(20)}”"
+            else -> "No players yet. Type a name below, or try 🎲 Random!"
+        }, 15f, R.color.text_dim).apply { gravity = Gravity.CENTER })
+        findViewById<View>(R.id.pickerPager).visibility = if (pages > 1) View.VISIBLE else View.INVISIBLE
+        findViewById<TextView>(R.id.pickerPageText).text = "${pickerPage + 1} / $pages"
+        findViewById<View>(R.id.pickerPrev).apply { isEnabled = pickerPage > 0; alpha = if (isEnabled) 1f else 0.35f }
+        findViewById<View>(R.id.pickerNext).apply { isEnabled = pickerPage < pages - 1; alpha = if (isEnabled) 1f else 0.35f }
     }
 
-    /** BACK in the picker steps back: out of remove mode, undo the first duet pick, then close. */
-    private fun pickerBack() {
+    /**
+     * Picks (or un-picks) a player. Solo: the new pick replaces the old one. Duet: up to two; a
+     * third pick replaces the second. Once everyone is chosen, the remote's focus jumps to the
+     * Sing now / Add button, so a solo singer is still just two presses away.
+     */
+    private fun togglePlayer(name: String) {
+        val i = pickerChosen.indexOfFirst { it.equals(name, ignoreCase = true) }
         when {
-            pickerRemove -> { pickerRemove = false; renderPicker() }
-            duetFirst != null -> { duetFirst = null; renderPicker() }
-            else -> closePicker()
+            i >= 0 -> pickerChosen.removeAt(i)
+            !pickerDuet -> { pickerChosen.clear(); pickerChosen += name }
+            pickerChosen.size >= 2 -> pickerChosen[1] = name
+            else -> pickerChosen += name
         }
+        sfx.play(sfx.pop, 0.4f)
+        val focusedName = (currentFocus as? TextView)?.takeIf { it.parent?.parent === findViewById<View>(R.id.pickerNames) }
+        val ready = pickerChosen.size >= pickerNeeds()
+        renderPicker()
+        if (ready && i < 0) findViewById<View>(R.id.pickerGo).requestFocus()
+        else if (focusedName != null) refocusName(name)
+    }
+
+    /** After the names are redrawn, puts the focus back on [name]'s button (or the first one). */
+    private fun refocusName(name: String) {
+        val box = findViewById<LinearLayout>(R.id.pickerNames)
+        for (r in 0 until box.childCount) {
+            val row = box.getChildAt(r) as? ViewGroup ?: continue
+            for (c in 0 until row.childCount) {
+                val b = row.getChildAt(c) as? TextView ?: continue
+                if (b.text.toString().removePrefix("✓ ").removePrefix("✕ ").equals(name, ignoreCase = true)) { b.requestFocus(); return }
+            }
+        }
+        ((box.getChildAt(0) as? ViewGroup)?.getChildAt(0) ?: findViewById(R.id.pickerInput)).requestFocus()
+    }
+
+    private fun setPickerMode(duet: Boolean) {
+        if (pickerDuet == duet) return
+        pickerDuet = duet
+        if (!duet && pickerChosen.size > 1) pickerChosen.subList(1, pickerChosen.size).clear()
+        sfx.play(sfx.pop, 0.4f)
+        renderPicker(focus = if (duet) R.id.pickerDuet else R.id.pickerSolo)
+    }
+
+    /** A new player (typed, or a random stage name): shown first and chosen straight away. */
+    private fun addNewPlayer(raw: String) {
+        val name = cleanName(raw) ?: return
+        val existing = (board.players() + pickerNew).firstOrNull { it.equals(name, ignoreCase = true) }
+        val n = existing ?: name.also { pickerNew.add(0, it) }
+        clearPickerInput()
+        hideKeyboard()
+        if (pickerChosen.none { it.equals(n, ignoreCase = true) }) togglePlayer(n) else renderPicker(focus = R.id.pickerGo)
+    }
+
+    /** The bottom button: starts (or queues) the song once enough players are chosen. */
+    private fun pickerGo() {
+        // A name typed but not added yet counts as picked
+        val typed = findViewById<EditText>(R.id.pickerInput).text.toString()
+        if (pickerChosen.size < pickerNeeds() && cleanName(typed) != null) {
+            addNewPlayer(typed)
+            if (pickerChosen.size < pickerNeeds()) return
+        }
+        if (pickerChosen.size < pickerNeeds()) {
+            toast(if (pickerDuet) "Pick two players for the duet 👫" else "Pick who's singing first 🎤")
+            renderPicker(focus = R.id.pickerNames)
+            return
+        }
+        startPicked(pickerChosen.toList())
+    }
+
+    /** BACK in the picker steps back: out of remove mode, then close. */
+    private fun pickerBack() {
+        if (pickerRemove) { pickerRemove = false; renderPicker(focus = R.id.pickerRemove) } else closePicker()
     }
 
     /** Second confirmation before a player and their scores are removed. "Keep" is the default. */
@@ -846,53 +968,38 @@ class MainActivity : Activity(), PartyBackend.Listener {
             "Remove $name?",
             "$name and all their scores (solo and duets) will be deleted from the hall of fame. This can't be undone.",
             listOf(
-                "Keep $name" to { overlayReturnFocus = back; renderPicker() },
+                "Keep $name" to { overlayReturnFocus = back; renderPicker(focus = R.id.pickerNames) },
                 "🗑 Remove" to {
                     overlayReturnFocus = back
                     if (board.removePlayer(name)) {
                         achievements.remove(name)
                         history.forgetSinger(name)
+                        pickerChosen.removeAll { it.equals(name, ignoreCase = true) }
                         toast("🗑 $name removed")
                     }
-                    renderPicker()
+                    if (board.players().isEmpty()) pickerRemove = false
+                    renderPicker(focus = R.id.pickerNames)
                 },
             ),
-            onCancel = { overlayReturnFocus = back; renderPicker() },
+            onCancel = { overlayReturnFocus = back; renderPicker(focus = R.id.pickerNames) },
         )
     }
 
     private fun randomStageName(): String {
-        val taken = (queue.snapshot().map { it.singer } + listOfNotNull(queue.current?.singer)).map { it.lowercase() }.toSet()
+        val taken = (queue.snapshot().map { it.singer } + listOfNotNull(queue.current?.singer) + pickerNew).map { it.lowercase() }.toSet()
         return STAGE_NAMES.shuffled().firstOrNull { it.lowercase() !in taken } ?: "Mystery Singer ${Random.nextInt(2, 99)}"
     }
 
-    private fun confirmPicker(raw: String) {
+    private fun startPicked(names: List<String>) {
         val song = pickerSong ?: return
-        val name = cleanName(raw)
-        if (name == null) {
-            val input = findViewById<EditText>(R.id.pickerInput)
-            input.requestFocus()
-            (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(input, 0)
-            return
-        }
-        if (pickerDuet) {
-            val first = duetFirst
-            if (first == null) {            // first of two: now ask for the partner
-                duetFirst = name
-                sfx.play(sfx.pop, 0.5f)
-                renderPicker()
-                return
-            }
-            if (first.equals(name, ignoreCase = true)) { toast("Pick someone else to sing with $first"); return }
-        }
-        val duet = pickerDuet
-        val singer = if (duet) duetFirst + DUET_JOIN + name else name
+        val duet = names.size == 2
+        val singer = names.joinToString(DUET_JOIN)
         val singNow = mode == Mode.LOBBY && queue.isEmpty()
         val item = QueueItem(song, singer, fromPhone = false, duet = duet, genres = Genres.detect(song.title, pickerFrom))
         val err = queue.add(item)
         closePicker()
         if (err != null) { toast(err); return }
-        board.rememberPlayers(singer.split(DUET_JOIN))
+        board.rememberPlayers(names)
         sfx.play(sfx.pop, 0.7f)
         if (singNow) {
             startNext()
@@ -947,8 +1054,13 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private val countdownTick = object : Runnable {
         override fun run() {
             if (mode != Mode.INTERMISSION || repairingKey != 0L) return
-            if (countdown <= 0) { beginSinging(); return }
             val v = findViewById<TextView>(R.id.imCount)
+            // No internet: hold here (the banner says why) and carry on when it's back
+            if (!net.online || waitingForNet) {
+                v.text = "📡"
+                if (net.online) { waitingForNet = false; countdown = 3 } else { ui.postDelayed(this, 1000); return }
+            }
+            if (countdown <= 0) { beginSinging(); return }
             v.text = countdown.toString()
             v.scaleX = 1.3f; v.scaleY = 1.3f
             v.animate().scaleX(1f).scaleY(1f).setDuration(300).start()
@@ -981,6 +1093,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val item = queue.current ?: return goLobby()
         if (repairingKey == item.key) return   // still looking for a version that plays
         ui.removeCallbacks(countdownTick)
+        if (!net.online) { ui.post(countdownTick); return }   // holds on "Next up" until the internet is back
         val p = player
         if (p == null || !playerReady) {
             startWhenReady = true
@@ -1003,7 +1116,70 @@ class MainActivity : Activity(), PartyBackend.Listener {
         showStageInfo()
         songsOnThisPlayer++
         p.setVolume(volume)
+        playerState = PlayerConstants.PlayerState.UNSTARTED
+        votes.clear()
         p.loadVideo(item.song.id, 0f)
+        startTries = 0
+        slowChecks = 0
+        ui.removeCallbacks(startWatch)
+        ui.postDelayed(startWatch, START_CHECK_MS)
+    }
+
+    /** The player's last reported state (UNSTARTED until the video reports in). */
+    private var playerState = PlayerConstants.PlayerState.UNKNOWN
+    private var startTries = 0
+    private var slowChecks = 0
+
+    /**
+     * Some videos load but never start by themselves: YouTube waits for a tap (an ad in front,
+     * or autoplay refused for that video). If nothing plays after a few seconds, nudge it: play
+     * again, then a tap on the player, then load it once more; if it still won't start, find
+     * another version of the song, as for a blocked video. A slow connection (still buffering)
+     * gets more time before anything drastic.
+     */
+    private val startWatch: Runnable = object : Runnable {
+        override fun run() {
+            if (mode != Mode.SINGING || finale) return
+            val p = player ?: return
+            val item = queue.current ?: return
+            // No internet: nothing to blame the video for; it carries on when the internet is back
+            if (!net.online) { ui.postDelayed(this, START_CHECK_MS); return }
+            val st = playerState
+            // Started already, or paused by the singer (the "Done singing?" menu): nothing to do
+            if (st == PlayerConstants.PlayerState.PLAYING || st == PlayerConstants.PlayerState.ENDED || maxSecond >= 1f) return
+            if (st == PlayerConstants.PlayerState.PAUSED && sheetLayer.isShown) return
+            if (st == PlayerConstants.PlayerState.BUFFERING && slowChecks < 6) {
+                slowChecks++                      // a slow connection: keep asking, give it time
+                p.play()
+            } else when (++startTries) {
+                1 -> p.play()
+                2 -> { tapPlayer(); p.play() }
+                3 -> { p.loadVideo(item.song.id, 0f); net.suspect() }   // and is the internet there?
+                4 -> tapPlayer()
+                else -> {
+                    tryAnotherVersion(item, "🔁 That video won't start. Finding another version…")
+                    return
+                }
+            }
+            ui.postDelayed(this, START_CHECK_MS)
+        }
+    }
+
+    private val stallCheck = Runnable {
+        if (mode == Mode.SINGING && playerState == PlayerConstants.PlayerState.BUFFERING) net.suspect()
+    }
+
+    /** A tap in the middle of the video: for YouTube, the "user gesture" some videos wait for. */
+    private fun tapPlayer() {
+        val web = playerView?.let { findWebView(it) } ?: return
+        if (web.width <= 0 || web.height <= 0) return
+        val t = android.os.SystemClock.uptimeMillis()
+        val x = web.width / 2f
+        val y = web.height / 2f
+        runCatching {
+            MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0).also { web.dispatchTouchEvent(it); it.recycle() }
+            MotionEvent.obtain(t, t + 60, MotionEvent.ACTION_UP, x, y, 0).also { web.dispatchTouchEvent(it); it.recycle() }
+        }
     }
 
     /**
@@ -1042,6 +1218,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     /** Shows or hides the video area (and the tap catcher above it). */
     private fun stage(on: Boolean) {
         stageContainer.visibility = if (on) View.VISIBLE else View.INVISIBLE
+        if (!on) { ui.removeCallbacks(startWatch); ui.removeCallbacks(stallCheck) }
         stageTouch.visibility = if (on && isTouch) View.VISIBLE else View.GONE
         finale = false
         ui.removeCallbacks(finaleDone)
@@ -1178,14 +1355,13 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun changeVolume(delta: Int) = setVolumeTo(volume + delta)
 
     /**
-     * The songs' volume, 0-100: songs, countdown and score sounds follow it (the lobby music has
-     * its own slider, see [LobbyMusic.volume]). Separate from the TV's own volume and the microphones.
+     * The songs' volume, 0-100 (sound effects and the lobby music have their own sliders, see
+     * [fxVolume] and [LobbyMusic.volume]). Separate from the TV's own volume and the microphones.
      */
     private fun setVolumeTo(value: Int, save: Boolean = true) {
         volume = value.coerceIn(0, 100)
-        if (save) prefs.edit().putInt("music_volume", volume).apply()
+        if (save) prefs.edit().putInt("music_volume", volume).putInt("fx_volume", fxVolume).apply()
         player?.setVolume(volume)
-        sfx.master = volume / 100f
         updateMusicButton()
         if (volumeLayer.isShown) findViewById<TextView>(R.id.volumeValue).text = "$volume%"
         findViewById<SeekBar>(R.id.tbVolume).let { if (it.progress != volume) it.progress = volume }
@@ -1267,7 +1443,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val item = queue.current ?: return goLobby()
         history.add(item.song, item.singer)   // for "🕘 Played", even when stopped early
         cheers.save()
-        val score = Judge.score(fraction) ?: return afterSong()
+        val score = Judge.score(fraction, Judge.crowd(votes.values)) ?: return afterSong()
+        votes.clear()
         mode = Mode.SCORE
         scoreDone = false
         player?.pause()
@@ -1578,6 +1755,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
         override fun onStateChange(youTubePlayer: YouTubePlayer, state: PlayerConstants.PlayerState) {
             if (!current) return
+            playerState = state
             isPlaying = state == PlayerConstants.PlayerState.PLAYING
             isPaused = state == PlayerConstants.PlayerState.PAUSED
             if (mode != Mode.SINGING) {
@@ -1594,6 +1772,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
                     ui.postDelayed(hideCaptionsLater, 2500)
                 }
                 PlayerConstants.PlayerState.ENDED -> startFinale()   // if the last second wasn't caught
+                // Stuck loading mid-song for a while: maybe the internet went (the Wi-Fi can stay up)
+                PlayerConstants.PlayerState.BUFFERING -> { ui.removeCallbacks(stallCheck); ui.postDelayed(stallCheck, STALL_MS) }
                 else -> Unit
             }
             updateCurtain()
@@ -1617,11 +1797,21 @@ class MainActivity : Activity(), PartyBackend.Listener {
             val item = queue.current ?: return
             if (mode != Mode.INTERMISSION && mode != Mode.SINGING) return
             pendingCue = null
-            // Remember refusals so the video (and, after repeats, its channel) stops showing up
+            if (!net.online) { waitForInternet(item); return }
+            // The video refuses (its owner blocks it) or is gone: remember it, so it (and, after
+            // repeats, its channel) stops showing up, and play another version
             if (error == PlayerConstants.PlayerError.VIDEO_NOT_PLAYABLE_IN_EMBEDDED_PLAYER ||
                 error == PlayerConstants.PlayerError.VIDEO_NOT_FOUND
-            ) search.markUnplayable(item.song)
-            tryAnotherVersion(item)
+            ) {
+                search.markUnplayable(item.song)
+                tryAnotherVersion(item)
+                return
+            }
+            // Anything else may be the connection: check before blaming the video
+            net.check { online ->
+                if (queue.current?.key != item.key || (mode != Mode.INTERMISSION && mode != Mode.SINGING)) return@check
+                if (online) tryAnotherVersion(item, "🔁 That video won't play. Finding another version…") else waitForInternet(item)
+            }
         }
     }
 
@@ -1629,7 +1819,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
      * A video refused to play (usually its owner blocks playback outside YouTube). Instead of
      * skipping the singer, find another karaoke video of the same song and play that.
      */
-    private fun tryAnotherVersion(item: QueueItem) {
+    private fun tryAnotherVersion(item: QueueItem, message: String = "🔁 That video is blocked by its owner. Finding another version…") {
         if (repairingKey == item.key) return
         val failed = item.song
         if (item.retries >= MAX_VERSION_TRIES) {
@@ -1649,11 +1839,16 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
         ui.removeCallbacks(countdownTick)
         findViewById<TextView>(R.id.imCount).text = "…"
-        toast("🔁 That video is blocked by its owner. Finding another version…")
+        toast(message)
         val started = runCatching {
             io.execute {
-                val alt = runCatching { search.alternativeFor(failed, setOf(failed.id)) }.getOrNull()
-                ui.post { onAnotherVersion(item, alt) }
+                val alt = runCatching { search.alternativeFor(failed, setOf(failed.id)) }
+                ui.post {
+                    val e = alt.exceptionOrNull()
+                    if (e == null || e is SearchException) onAnotherVersion(item, alt.getOrNull())
+                    // The search itself failed: no internet means wait, not skip the singer
+                    else net.check { online -> if (online) onAnotherVersion(item, null) else waitForInternet(item) }
+                }
             }
         }.isSuccess
         if (!started) repairingKey = 0L
@@ -1692,21 +1887,91 @@ class MainActivity : Activity(), PartyBackend.Listener {
             ?: newToken().also { prefs.edit().putString("party_key", it).putLong("party_key_time", now).apply() }
         val page = runCatching { assets.open("remote.html").use { it.readBytes() } }.getOrNull() ?: return
         val b = PartyBackend(queue, search, board, history, this)
+        b.online = net.online
         val s = PartyServer(b, token, page)
         server = s
         backend = b
         updateLive()
         io.execute {
             val port = s.start()
-            val ip = lanAddress()
-            val url = if (port > 0 && ip != null) "http://$ip:$port/?k=$token" else null
             ui.post {
                 if (server === s) {
-                    partyUrl = url
-                    updateQr()
+                    serverPort = port
+                    partyToken = token
+                    updatePartyUrl()
                 }
             }
         }
+    }
+
+    /** The phones' link: the TV's current address on the Wi-Fi (it can change), the port and the party key. */
+    private fun updatePartyUrl() {
+        val ip = net.lanAddress
+        val token = partyToken
+        val url = if (serverPort > 0 && ip != null && token != null && server != null) "http://$ip:$serverPort/?k=$token" else null
+        if (url == partyUrl && findViewById<TextView>(R.id.lobbyUrl).text.isNotEmpty()) return   // QR codes take a moment to draw
+        partyUrl = url
+        updateQr()
+    }
+
+    /** The connection changed: new address for the phones, and the no-internet banner on or off. */
+    private fun onNetworkChanged() {
+        updatePartyUrl()
+        val online = net.online
+        backend?.online = online
+        findViewById<View>(R.id.netBanner).visibility = if (online) View.GONE else View.VISIBLE
+        if (online && wasOffline) {
+            toast("✅ Internet is back")
+            resumeAfterOutage()
+        }
+        wasOffline = !online
+    }
+
+    /** Back online: whatever was waiting carries on by itself. */
+    private fun resumeAfterOutage() {
+        lobbyBrowser.retryIfFailed()
+        panelBrowser.retryIfFailed()
+        val item = queue.current ?: return
+        if (mode != Mode.INTERMISSION && mode != Mode.SINGING) return
+        // The player page itself may never have loaded: start it again
+        if (playerView != null && !playerReady) { releasePlayer(); ensurePlayer() }
+        if (mode == Mode.INTERMISSION) {
+            if (repairingKey != 0L) return               // already looking for another version
+            cue(item.song.id)
+            if (waitingForNet) { waitingForNet = false; countdown = 3 }
+            ui.removeCallbacks(countdownTick)
+            ui.post(countdownTick)
+            return
+        }
+        // Singing: carry on from where the video stopped (unless the singer paused it)
+        val st = playerState
+        if (finale || st == PlayerConstants.PlayerState.PLAYING || (st == PlayerConstants.PlayerState.PAUSED && sheetLayer.isShown)) return
+        player?.loadVideo(item.song.id, maxSecond)
+        startTries = 0
+        slowChecks = 0
+        ui.removeCallbacks(startWatch)
+        ui.postDelayed(startWatch, START_CHECK_MS)
+    }
+
+    /**
+     * No internet for this song: back to "Next up" with the same singer and song. It holds there
+     * (📡 instead of the countdown) and starts by itself when the internet is back. Nobody's turn is skipped.
+     */
+    private fun waitForInternet(item: QueueItem) {
+        if (queue.current?.key != item.key) return
+        repairingKey = 0L
+        if (mode == Mode.SINGING) {
+            mode = Mode.INTERMISSION
+            listOf(hud, queuePanel).forEach { it.visibility = View.GONE }
+            stage(false)
+            intermission.visibility = View.VISIBLE
+            stageBg.animating = true
+            music.start()
+        }
+        if (mode != Mode.INTERMISSION) return
+        waitingForNet = true
+        ui.removeCallbacks(countdownTick)
+        ui.post(countdownTick)
     }
 
     /** Synchronous on purpose: closing a socket is instant, and a queued task could be dropped on exit. */
@@ -1717,13 +1982,6 @@ class MainActivity : Activity(), PartyBackend.Listener {
         server = null
         s.stop()
     }
-
-    private fun lanAddress(): String? = runCatching {
-        val cm = getSystemService(ConnectivityManager::class.java)
-        val props = cm.getLinkProperties(cm.activeNetwork) ?: return null
-        props.linkAddresses.map { it.address }
-            .firstOrNull { it is Inet4Address && !it.isLoopbackAddress }?.hostAddress
-    }.getOrNull()
 
     private fun newToken(): String {
         val alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -1745,19 +2003,30 @@ class MainActivity : Activity(), PartyBackend.Listener {
         toast("📱 ${item.singer} added “${item.song.title.take(45)}”")
     }
 
+    /** A phone's search failed for lack of internet. */
+    override fun onOffline() = net.suspect()
+
     override fun onPhoneRemoved(item: QueueItem) {
         toast("📱 ${item.singer} took “${item.song.title.take(45)}” out of the queue")
     }
 
-    /** A guest cheered: a small emoji rises along the edge of the video (no sound: the singer is singing). */
-    override fun onReaction(emoji: String) {
+    /**
+     * A guest cheered: a small emoji rises along the edge of the video (no sound: the singer is
+     * singing). Secretly it's also that phone's vote: its last cheer nudges the score.
+     */
+    override fun onReaction(index: Int, owner: String) {
         if (!liveNow()) return
-        cheers.add(queue.current?.singer)
+        val emoji = REACTIONS.getOrNull(index) ?: return
+        if (owner in votes || votes.size < MAX_VOTES) votes[owner] = REACTION_VOTES[index]
+        if (REACTION_VOTES[index] >= 0) cheers.add(queue.current?.singer)   // 😴 and 🍅 aren't cheers
         stageReactions.cheer(emoji)
     }
 
-    /** Phones may cheer only while a song is actually playing (not paused, not in the finale). */
-    private fun liveNow() = mode == Mode.SINGING && isPlaying && !isPaused && !finale
+    /** This song's hidden votes: each phone's (fingerprint's) last cheer, as -2 … +2. */
+    private val votes = HashMap<String, Int>()
+
+    /** Phones may cheer while a song is playing (not paused), right up to the "Big finish". */
+    private fun liveNow() = mode == Mode.SINGING && (finale || (isPlaying && !isPaused))
 
     private fun updateLive() { backend?.live = liveNow() }
 
@@ -1934,6 +2203,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun updateVolumePanel() {
         findViewById<TextView>(R.id.volumeValue).text = "$volume%"
         findViewById<SeekBar>(R.id.volumeSlider).progress = volume
+        findViewById<TextView>(R.id.fxValue).text = "$fxVolume%"
+        findViewById<SeekBar>(R.id.fxSlider).progress = fxVolume
         val lobby = music.volume
         findViewById<TextView>(R.id.lobbyValue).text = if (music.enabled) "$lobby%" else "Off"
         findViewById<SeekBar>(R.id.lobbySlider).apply { progress = lobby; alpha = if (music.enabled) 1f else 0.5f }
@@ -2753,6 +3024,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
         const val FINALE_MS = 5000L
         /** The lobby music fades back in this long after the score lands. */
         const val SCORE_MUSIC_DELAY_MS = 5000L
+        /** How long a video may take to start before it gets a nudge (see startWatch). */
+        const val START_CHECK_MS = 3500L
+        /** Buffering this long mid-song makes the TV check its internet. */
+        const val STALL_MS = 6000L
+        /** At most this many phones vote on one song. */
+        const val MAX_VOTES = 300
         /** In the night recap, how long the drumroll lasts before each winner's name appears. */
         const val RECAP_REVEAL_MS = 1500L
         /** Genre chips per row on a singer's achievements (two rows for all 17). */

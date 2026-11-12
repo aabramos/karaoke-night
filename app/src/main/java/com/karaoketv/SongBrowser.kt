@@ -50,6 +50,10 @@ class SongBrowser(
     /** The dice landed on [song] (for a sound and a toast); [rolling] is called for each name that flashes past. */
     var onSurprise: ((Song, Surprise.Roll) -> Unit)? = null
     var rolling: (() -> Unit)? = null
+    /** A search failed for lack of internet (not a YouTube answer): the screen checks the connection. */
+    var onOffline: (() -> Unit)? = null
+    /** What to run again once the internet is back, if the last search failed for lack of it. */
+    private var retry: (() -> Unit)? = null
     private val surpriseChip get() = if (played != null) 1 else 0
     private val chipOffset get() = (if (played != null) 1 else 0) + (if (dice != null) 1 else 0)
 
@@ -156,8 +160,23 @@ class SongBrowser(
             onSurprise?.invoke(first, roll)
         }.onFailure { e ->
             render(emptyList())
-            showStatus(if (e is SearchException) "😕 ${e.message}" else "😕 Can't reach YouTube.\nCheck the TV's internet connection.")
+            showFailure(e) { surprise() }
         }
+    }
+
+    /** Explains a failed search. Without internet it also says it will try again by itself. */
+    private fun showFailure(e: Throwable, again: () -> Unit) {
+        if (e is SearchException) { showStatus("😕 ${e.message}"); return }
+        retry = again
+        showStatus(OFFLINE_TEXT)
+        onOffline?.invoke()
+    }
+
+    /** The internet is back: re-run the search that failed without it (if it's still on screen). */
+    fun retryIfFailed() {
+        val again = retry ?: return
+        retry = null
+        if (status.visibility == View.VISIBLE && status.text == OFFLINE_TEXT) again()
     }
 
     fun runQuickPick(index: Int) {
@@ -177,6 +196,7 @@ class SongBrowser(
     fun run(query: String) {
         val gen = ++generation
         lastQuery = query
+        retry = null
         showStatus("🎵  Searching…")
         scroll.animate().alpha(0.3f).setDuration(150).start()   // old results fade back while searching
         // The background task only keeps a weak link back to this screen, so a slow network
@@ -201,10 +221,8 @@ class SongBrowser(
             }.onFailure { e ->
                 render(emptyList())
                 focusOnResults = false
-                showStatus(
-                    if (e is SearchException) "😕 ${e.message}"
-                    else "😕 Can't reach YouTube.\nCheck the TV's internet connection."
-                )
+                val query = lastQuery
+                showFailure(e) { if (query != null) run(query) }
             }
         }
     }
@@ -292,5 +310,6 @@ class SongBrowser(
     private companion object {
         /** How long the names flash past, at least (the search usually takes about that long anyway). */
         const val SPIN_MS = 1600L
+        const val OFFLINE_TEXT = "📡 No internet, so no songs right now.\nThe search runs again by itself when it's back."
     }
 }

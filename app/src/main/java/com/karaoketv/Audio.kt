@@ -16,7 +16,7 @@ class LobbyMusic(context: Context) {
         /** The loudest it can be (about -12 dB): even at 100% it stays background music. */
         const val MAX_LEVEL = 0.25f
         /** 40% = 0.04 (about -28 dB), the quiet level it always had before it got its own slider. */
-        const val DEFAULT_VOLUME = 40
+        const val DEFAULT_VOLUME = 10
         /** Slider 0-100 → playback level, on a curve so each step sounds about as big as the last. */
         fun levelFor(volume: Int): Float = MAX_LEVEL * (volume.coerceIn(0, 100) / 100f).let { it * it }
     }

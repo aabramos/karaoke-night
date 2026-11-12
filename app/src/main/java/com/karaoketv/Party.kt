@@ -199,9 +199,15 @@ class PartyBackend(
     interface Listener {
         fun onPhoneAdded(item: QueueItem)
         fun onPhoneRemoved(item: QueueItem)
-        /** A guest cheered from their phone (only sent while a song is playing). */
-        fun onReaction(emoji: String)
+        /** A phone's search failed for lack of internet: the TV checks its connection. */
+        fun onOffline()
+        /** A guest cheered from their phone (only sent while a song is playing): [REACTIONS] index and the phone's fingerprint. */
+        fun onReaction(index: Int, owner: String)
     }
+
+    /** Set by the screen: false while the TV can't reach YouTube (phones are told; searches fail fast). */
+    @Volatile var online = true
+        set(v) { if (field != v) { field = v; invalidate() } }
 
     /** Set by the screen: phones can cheer only while a song is actually playing. */
     @Volatile var live = false
@@ -215,11 +221,27 @@ class PartyBackend(
 
     override fun searchJson(query: String): String {
         val arr = JSONArray()
-        search.search(query).forEach {
+        guarded { search.search(query) }.forEach {
             arr.put(JSONObject().put("id", it.id).put("title", it.title).put("channel", it.channel).put("dur", it.duration)
                 .put("views", viewsLabel(it.views)))
         }
         return arr.toString()
+    }
+
+    /**
+     * Runs a YouTube search for a phone. Failures become messages for the guest; one for lack of
+     * internet also makes the TV check its connection.
+     */
+    private fun <T> guarded(block: () -> T): T {
+        if (!online) throw PartyServer.GuestError(NO_INTERNET)
+        return try {
+            block()
+        } catch (e: SearchException) {
+            throw PartyServer.GuestError(e.message ?: "Search failed. Try again.")
+        } catch (e: Exception) {
+            main.post { listener.get()?.onOffline() }
+            throw PartyServer.GuestError(NO_INTERNET)
+        }
     }
 
     // Every phone asks for this every few seconds: build it at most once a second and share it
@@ -238,6 +260,7 @@ class PartyBackend(
     private fun buildState(): String {
         val o = JSONObject()
         queue.current?.let { o.put("now", JSONObject().put("singer", it.singer).put("title", it.song.title)) }
+        if (!online) o.put("offline", true)
         // While a song plays, the phones show these cheer buttons
         if (live && queue.current != null) o.put("react", JSONArray().also { a -> REACTIONS.forEach { a.put(it) } })
         val arr = JSONArray()
@@ -286,7 +309,7 @@ class PartyBackend(
     }
 
     override fun react(emoji: String?, phone: String?): String? {
-        val e = REACTIONS.getOrNull(emoji?.toIntOrNull() ?: -1) ?: return "That cheer isn't available."
+        val index = emoji?.toIntOrNull()?.takeIf { it in REACTIONS.indices } ?: return "That cheer isn't available."
         if (!live) return "Cheers work while someone is singing."
         val owner = ownerTag(phone) ?: return "Reload the page and try again."
         val now = android.os.SystemClock.elapsedRealtime()
@@ -300,14 +323,14 @@ class PartyBackend(
             }
             lastCheer[owner] = now
         }
-        main.post { listener.get()?.onReaction(e) }
+        main.post { listener.get()?.onReaction(index, owner) }
         return null
     }
 
     override fun surpriseJson(): String {
         val recent = history.all().map { it.song.title.lowercase() }
         val roll = Surprise.roll(search.country, recent)
-        val songs = Surprise.arrange(roll, search.search(roll.query))
+        val songs = Surprise.arrange(roll, guarded { search.search(roll.query) })
         val arr = JSONArray()
         songs.forEach {
             arr.put(JSONObject().put("id", it.id).put("title", it.title).put("channel", it.channel).put("dur", it.duration)
@@ -330,8 +353,16 @@ class PartyBackend(
 
 private const val STATE_CACHE_MS = 1000L
 
+private const val NO_INTERNET = "📡 The TV can't reach YouTube right now. Try again when its internet is back."
+
 /** The cheers guests can send from their phones (the phone sends the number). */
-val REACTIONS = listOf("👏", "🔥", "😍", "😂", "🎉", "🤘")
+val REACTIONS = listOf("👏", "🔥", "😍", "🎉", "😂", "😴", "🍅")
+
+/**
+ * The secret behind the cheers: each phone's last one before the song ends is a vote that nudges
+ * the score a little (see [Judge.CROWD_POINTS]). Same order as [REACTIONS]. Nobody is told.
+ */
+val REACTION_VOTES = intArrayOf(1, 2, 2, 1, 0, -1, -2)
 
 /** A phone can cheer once every this many milliseconds (the page itself waits a little longer). */
 const val CHEER_GAP_MS = 2500L

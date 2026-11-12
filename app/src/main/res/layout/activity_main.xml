@@ -145,6 +145,28 @@
         layout="@layout/intro"
         android:visibility="gone" />
 
+    <!-- Shown while the TV can't reach YouTube (all screens); phones on the Wi-Fi keep working -->
+    <TextView
+        android:id="@+id/netBanner"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="18dp"
+        android:accessibilityLiveRegion="assertive"
+        android:background="@drawable/pill_bg"
+        android:backgroundTint="#B37A1F"
+        android:elevation="8dp"
+        android:maxWidth="760dp"
+        android:paddingStart="22dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="22dp"
+        android:paddingBottom="10dp"
+        android:text="📡 No internet. Songs wait here and continue by themselves when it's back."
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/toast"
         android:accessibilityLiveRegion="polite"

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Two volumes: songs + countdown/score sounds, and the lobby music on its own -->
+<!-- Three volumes: the songs, the sound effects (countdown, drumroll, score) and the lobby music -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -13,7 +13,7 @@
         android:background="@drawable/panel_bg"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:padding="22dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -36,7 +36,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
+            android:layout_marginTop="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -44,7 +44,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="🎤 Songs &amp; sound effects"
+                android:text="🎤 Songs"
                 android:textColor="@color/text_main"
                 android:textSize="17sp"
                 android:textStyle="bold" />
@@ -64,10 +64,10 @@
         <SeekBar
             android:id="@+id/volumeSlider"
             android:layout_width="match_parent"
-            android:layout_height="46dp"
+            android:layout_height="40dp"
             android:layout_marginTop="4dp"
             android:background="@drawable/chip_bg"
-            android:contentDescription="Volume for songs and sound effects"
+            android:contentDescription="Volume of the songs"
             android:focusable="true"
             android:max="100"
             android:paddingStart="24dp"
@@ -75,11 +75,53 @@
             android:progressDrawable="@drawable/volume_track"
             android:thumbTint="@color/neon_pink" />
 
+        <!-- Countdown ticks, drumroll, score fanfare, pops -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="🥁 Sound effects"
+                android:textColor="@color/text_main"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/fxValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-black"
+                android:shadowColor="@color/gold"
+                android:shadowRadius="14"
+                android:textColor="#FFFFFF"
+                android:textSize="24sp" />
+        </LinearLayout>
+
+        <SeekBar
+            android:id="@+id/fxSlider"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/chip_bg"
+            android:contentDescription="Volume of the sound effects"
+            android:focusable="true"
+            android:max="100"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:progressDrawable="@drawable/volume_track"
+            android:thumbTint="@color/gold" />
+
         <!-- Lobby music, usually much lower: it plays while people talk -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
+            android:layout_marginTop="10dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -106,7 +148,7 @@
         <SeekBar
             android:id="@+id/lobbySlider"
             android:layout_width="match_parent"
-            android:layout_height="46dp"
+            android:layout_height="40dp"
             android:layout_marginTop="4dp"
             android:background="@drawable/chip_bg"
             android:contentDescription="Lobby music volume"

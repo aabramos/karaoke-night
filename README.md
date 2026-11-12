@@ -1,289 +1,137 @@
-# Karaoke Night: a party karaoke app for Android TV / NVIDIA Shield
+# Karaoke Night
 
-A karaoke app for the big screen, built for parties:
+Party karaoke for Android TV (built for the NVIDIA Shield). Also runs on Android phones and tablets.
 
-- **Karaoke-only search** on YouTube, with quick picks (Top hits, 80s, 90s, Duets, Party…), most-watched
-  versions first, and only videos that can actually play in the app
-- **Party country**: pick any country (all of them are listed) and the quick picks switch to music
-  from there (Fado and Pimba for Portugal, Sertanejo and MPB for Brazil…), while YouTube ranks every
-  search for that country and language. Guests' phones follow automatically
-- **Song queue** with singer names. Songs play one after another with a **"Next up: MARIA!"** countdown in between
-- **Guests add songs from their phones** by scanning the QR code on the TV, **without interrupting the current singer**
-- **Quiet lobby music** while people choose songs; it fades out when a song starts and back in afterwards
-- **One volume for songs and sound effects**, separate from the TV volume, to balance the music against
-  your mics: the 🎵 button in the lobby, ◀ ▶ during a song, or a slider on phones
-- **Lobby music** has its own volume slider (quiet by default) and can be switched off
-- **Duets**: pick two singers for one song (on the TV or a phone); duets have their own ranking
-- **Players list**: everyone who has sung is one tap away on the TV and on guests' phones (typing a few
-  letters finds anyone, even with dozens of players). Only the TV can remove a player (with a confirmation),
-  which also removes their scores and achievements
-- **The judge**: drumroll, count-up, stars, a verdict, applause, and confetti + fanfare for 95+, plus
-  highlights like a new personal best. Once in a while (about 1 great score in 8, 85+ only) there's a
-  surprise: four celebrity judges hold up their paddles (🐱 Whiskers, 🤖 RoboJudge, 👵 Grandma Rosa,
-  🦜 Captain Polly), an emoji crowd cheers from both sides, or both
-- **Achievements**: 25 to collect and keep (85 / 90 / 95 points, Perfect 100, Champion, Hat-trick, Best friends,
-  Social butterfly, Lucky 77, Tomato magnet, Stage fright, Encore, Dream
-  team, Night owl, Legend…), plus **17 genres** to collect, unlocked the first time someone sings each one
-  (🎸 Rock, 🍭 Pop, 🕺 Disco, 🧢 Hip-hop, 💜 Soul, 🤠 Country, 💃 Latin, 🤘 Metal, 🎭 Musicals, 🎬 Movies,
-  🎻 Classical, 🎮 Games & anime, 🎺 Jazz, 🌴 Reggae, 🌸 K-pop & J-pop, 🇵🇹 Portuguese, 🇧🇷 Brazilian).
-  New ones pop up on the score screen; the hall of fame's **🏅 Achievements** tab shows every singer's
-  collection, and OK on a singer shows them all: when each was won, and how to get the rest.
-  Scores from before this version count too. YouTube doesn't say what genre a video is, so the app
-  works it out from the title (well-known artists, musicals, films, games…) and from the search or
-  quick pick that found the song ("🎸 Rock" counts as rock); songs it can't place count for no genre
-- **Opening animation** when the app starts (any button or a tap skips it)
-- **🕘 Played**: the last 10 songs sung, first in the quick picks on the TV and on phones, to sing one again
-- **🎲 Surprise me** (next to 🕘 Played, on the TV and on phones): can't decide? The dice pick a song everyone
-  knows (about 140 karaoke classics, plus local favourites when a party country is set) and show it first.
-  Roll again as often as you like; it won't suggest a song that was just sung
-- **Cheers from the phones**: while someone sings, guests tap 👏 🔥 😍 😂 🎉 🤘 and the emoji floats up the
-  edge of the TV. Kept out of the singer's way: small, see-through, only along the sides, no sound, one
-  cheer every 3 seconds per phone and at most 2 a second on screen for the whole room
-- **🌙 Close the night** (in the lobby): a flashy awards show for tonight. Drumroll and a reveal for each award
-  (Opening act, Marathon singer, Crowd favourite, Steady voice, Badge hunter, Duet of the night, Bravest
-  singer, Closing act; only the ones that fit the night), then the top 3 rise onto a podium and the
-  **Singer of the night** gets a crown, fanfare and confetti. Ends with every award at a glance.
-  OK skips ahead, ◀ goes back, BACK leaves. Nothing is deleted: watch it again any time
-- **Hall of fame**: a podium and the top 8 (with the song each score came from) for tonight, all time and duets, plus achievements. Scores are saved automatically under each singer's name
-- **About** (ℹ️ in the lobby): version number, author and a link (and QR code) to the project page
-- **Works without a YouTube API key** (optional key for extra reliability, see below)
-- **Never stalls on a blocked video**: if a video's owner blocks playback outside YouTube, the app
-  finds another karaoke version of the same song for the same singer
-- Made for the TV, and also runs full screen on Android phones and tablets
+## Features
 
-> The score is just for fun: it doesn't listen to the singer. A song sung to the end (or into its
-> last 10%, usually a silent outro) scores between 65 and 100: most land in the 70s and 80s, 90+ is a
-> treat and a perfect 100 is rare. Stopping earlier scores 0 to 65, closer to 65 the further the singer
-> got; stopping in the first 10% (a wrong song, say) isn't scored.
+- Karaoke-only YouTube search, with quick picks (Top hits, 80s, 90s, Duets…) and voice search
+- Song queue with a "Next up" countdown between singers
+- Guests add songs from their phones by scanning a QR code, without interrupting the singer
+- Solo and duet modes, a saved players list, and a fun score (it doesn't listen to the singer)
+- Hall of fame (tonight, all time, duets), 42 achievements, and a 🌙 "Close the night" awards show
+- 🎲 Surprise me: a random song everyone knows
+- Party country: quick picks and search ranking for any country
+- Cheers from the phones that float up the edge of the TV
+- Bossa nova lobby music between songs, and three volume sliders: songs, sound effects, lobby music (10% by default)
+- No YouTube API key needed (an optional key makes search more reliable)
+- Keeps going when the internet or Wi-Fi drops (see [Connection problems](#connection-problems))
 
----
+**Scoring:** a song sung to the end scores 65 to 100. Stopping early scores 0 to 65, higher the further you got. Stopping in the first 10% gives no score.
 
-## Party-night checklist (about 1 minute)
+## Party checklist
 
-1. Open **Karaoke Night** on the Shield. Songs, the queue and the phone QR code are already there. No setup.
-2. Want guests to add songs? Select the QR card and press **OK** for a big code everyone can scan from the sofa.
-3. Pick a song → choose a name (or **🎲 Surprise name**, no typing) → **🎤 Sing now!**
+1. Open **Karaoke Night**. The queue and the QR code are ready.
+2. For guests: select the QR card and press **OK** for a big code.
+3. Pick a song, choose **Solo** or **Duet**, pick the player(s), press **Sing now!**
 
-That's it. The queue is saved, so if someone exits the app by accident, everything is still there when it reopens.
-
-## How a party goes
-
-1. **Lobby**: browse the quick picks, type, or press **🎙** and say the song. Pick one → choose who's singing
-   (recent singers are one click away). Guests can scan the QR code on the right and add songs too.
-2. Press **▶ START** (or just wait: if songs are queued and nobody touches the remote for 30 s, the party starts by itself).
-3. **Next up**: the singer's name appears with a 10-second countdown while the video loads.
-4. **Singing**: full-screen video. Press **▼** to open the queue panel on the right and add songs while the song keeps playing.
-5. **Big finish**: in the last second of the song, a "🎤 Big finish!" screen for 5 seconds.
-6. **Score**: drumroll, score, stars, rank of the night and any achievements; 5 seconds later the lobby music fades back in, then
-   it's on to the next singer.
-7. **End of the party**: press **🌙** in the lobby for tonight's awards show.
+The queue is saved. If the app closes, everything is still there when it reopens.
 
 ## Remote controls
 
 | Where | Button | Does |
 |---|---|---|
-| Lobby | ▲ ▼ ◀ ▶ / OK | Move around, pick a song, open a queued song (sing next / remove) |
-| Lobby | 🎙 button (or the remote's search button) | Voice search: say a song or artist |
-| Lobby | QR card → OK | Big join code for guests' phones |
-| Lobby | 🌍 / flag button | Party country: every country, type a few letters to find one |
-| Lobby | 🏆 button | Hall of fame: tonight, all time, duets, 🏅 achievements (OK on a singer: all their achievements) |
-| Lobby | 🎵 button | Volume: songs and sound effects, lobby music (its own slider), lobby music on/off |
-| Lobby | 🕘 Played chip | The last 10 songs sung, to sing one again |
-| Lobby | 🎲 Surprise me chip | A random song everyone knows (OK again on the chip to re-roll) |
-| Lobby | 🌙 button | Close the night: tonight's awards show (OK = next, ◀ = back, BACK = leave) |
-| Lobby | ℹ️ button | About: version, author, project page |
-| Who's singing? | 👫 Duet / 🎲 / 🗑 / ‹ › | Two singers / surprise name / remove a player (asks first) / more names. Typing filters the names. BACK steps back |
-| Lobby | BACK twice | Exit the app |
-| Next up | OK | Start now |
-| Next up | ▶ | "Not ready": move this singer to the end of the queue |
-| Next up | BACK | Back to the lobby (the singer keeps their place) |
-| Singing | ◀ ▶ | Music volume down / up (remembered) |
-| Singing | OK / ⏯ | Pause / resume |
-| Singing | ▼ | Queue panel: see who's next, add songs without stopping the music |
-| Singing | ▲ | Show singer and "up next" again |
-| Singing | BACK | Menu: keep singing / score me / skip / lobby |
+| Lobby | Arrows / OK | Move, pick a song, open a queued song |
+| Lobby | 🎙 or the remote's search button | Voice search |
+| Lobby | QR card, then OK | Big code for phones |
+| Lobby | 🌍 | Party country |
+| Lobby | 🏆 | Hall of fame and achievements |
+| Lobby | 🌙 | Close the night: awards show (OK next, ◀ back, BACK leave) |
+| Lobby | 🎵 | Volume sliders, lobby music on/off |
+| Lobby | ℹ️ | About |
+| Lobby | BACK twice | Exit |
+| Who's singing? | | Mode (Solo/Duet), pick players (OK again un-picks), ‹ › more, 🎲 Random name, type a new player, 🗑 Remove. Then **Sing now!** or **Add to queue** |
+| Next up | OK / ▶ / BACK | Start now / move singer to the end / back to the lobby |
+| Singing | ◀ ▶ | Song volume |
+| Singing | OK | Pause / resume |
+| Singing | ▼ / ▲ | Queue panel / singer info |
+| Singing | BACK | Menu: keep singing, score me, skip, lobby |
 | Score | OK | Continue (it also continues by itself) |
 
-**On a phone or tablet** everything works by touch: tap **Next up** to start (or use its Later / Lobby
-buttons), tap the video for the controls bar (pause, a music-volume slider, queue, menu), tap the score
-to continue. Pop-ups such as the hall of fame and About have a **← Back** button.
-The phone's Back gesture does what BACK does on the remote.
+If songs are queued and nobody touches the remote for 30 seconds, the party starts by itself.
+On a touchscreen, tap instead: the video opens a controls bar, and pop-ups have a **← Back** button.
 
 ## Guests' phones
 
-The TV runs a tiny web page for the party. Guests scan the QR code, tap their name in the players list (or
-type it once), search (or tap **🕘 Played** for the songs sung so far, or **🎲 Surprise me** for a random one), and tap **+**. For a duet, fill in **Duet partner** too (tap a name while that box
-is selected; typing filters the names). Phones can't remove players: only the TV can.
-Added a song by mistake? A **✕** appears next to every song that phone added while it's still waiting;
-tap it, then tap **Remove?** to confirm. A phone can only remove its own songs (each phone gets a random ID,
-and the TV only keeps a fingerprint of it), never someone else's or the one being sung.
-Their phones show, from the top: who's singing (with **cheer buttons** while the song plays), **tonight's top 3** (each singer's best score and the song,
-plus the best duet), the queue (the next 5 plus their own songs; "Show all" for the rest), and then the
-song search, all updated live. Their own spot is highlighted, and a message pops up when someone takes the lead.
+Guests scan the QR code (same Wi-Fi as the TV), enter their name once, search, and tap **+**.
 
-- Phones must be on the **same Wi-Fi** as the Shield. Guest networks often block devices from seeing each
-  other; if the page won't open, use the main network.
-- Security: the page only answers devices on your local network, and only with the secret key that's inside
-  the QR code. Wrong keys are limited to a few tries a minute, and the key changes after 12 hours (only
-  between parties, so phones that already joined keep working). Phones can only add songs that came out
-  of the karaoke search. There are limits on request size and time, on how many songs or searches one
-  phone can make per minute, and at most 3 queued songs per singer. Cheers are limited on the phone
-  (one every 3 seconds), by the TV (one every 2.5 seconds per phone, 20 a minute) and on screen.
-- Big parties: dozens of phones can be connected at once. Each phone asks for updates every few seconds
-  (at slightly different moments, less often if the TV doesn't answer, never while the phone is locked),
-  the TV answers them all from one copy refreshed every second, and at most 3 searches run at once
-  ("Lots of people are searching. Try again in a few seconds" otherwise), so updates never wait.
+From the top, the page shows: who's singing (with cheer buttons during a song), tonight's top 3, the queue, their name, and the search. A **🔍 Add a song** button jumps to the search. After adding, the phone says your place in line. A phone can remove only its own waiting songs (✕, then confirm). Only the TV can remove players.
 
-## Searching: with or without a YouTube API key
+Guest Wi-Fi networks often block devices from seeing each other. If the page won't open, use the main network.
 
-**Without a key (default):** the app searches the same way YouTube's own website does, as open-source
-apps like NewPipe do. No setup and no daily limit. It isn't an official API, so it's against YouTube's
-terms of service, and if YouTube changes their website, search can stop working until the app is updated.
-Video playback always uses YouTube's official embedded player either way.
+**Security:** the page answers only devices on the local network, and only with the secret key in the QR code. The key changes after 12 hours (between parties). Requests, searches, songs per singer (3) and cheers are rate-limited.
 
-**With a key (optional, more reliable):** uses the official YouTube Data API. It allows about 100 searches a
-day (each search is saved on the Shield for 24 hours, so repeats are free), filters out videos that can't
-be embedded, and falls back to key-less search automatically if the daily quota runs out.
+## Connection problems
 
-To get a key:
-1. Go to <https://console.cloud.google.com/>, create a project, and enable **YouTube Data API v3**
-   (APIs & Services → Library).
-2. **APIs & Services → Credentials → Create credentials → API key.**
-3. Restrict it: **Application restrictions → Android apps**, package `com.karaoketv` and the SHA-1 shown by
-   running `./gradlew signingReport` (use the line for the build you install). **API restrictions → YouTube Data API v3.**
-4. Add it to `local.properties` in the project folder: `YOUTUBE_API_KEY=AIza…` and rebuild.
+| What happens | What the app does |
+|---|---|
+| The TV loses its internet | A banner says so on the TV and on phones. Searches say why they failed. The next singer waits on "Next up" (📡) instead of being skipped. A song that stalls continues from where it stopped once the internet is back, and failed searches run again by themselves. |
+| A video won't start by itself | After a few seconds the app presses play, taps the player, then reloads it. If it still won't start, another version of the song plays. |
+| A video's owner blocks it | Another karaoke version of the same song plays, and the blocked video stops showing up. |
+| A phone can't reach the TV | A red bar on the phone with a **Try again** button. Actions explain the problem instead of failing silently. The phone reconnects by itself. |
+| The TV gets a new Wi-Fi address | The QR code updates. Guests scan it again. |
+| An old party link | The phone says to scan the QR code on the TV again. |
 
-## Party country
+## YouTube API key (optional)
 
-Press the 🌍 button (it shows the chosen flag afterwards) and pick a country, or type a few letters
-to find it. **International** is the original mix.
+Without a key, the app searches the way YouTube's website does (like NewPipe). This has no daily limit, but it's against YouTube's terms and can break if YouTube changes its site. Playback always uses YouTube's official embedded player.
 
-- **Quick picks**: Portugal, Brazil, the US, the UK, Ireland, Canada, Australia, Spain, Mexico,
-  Argentina, Colombia, France, Italy, Germany, the Netherlands, the Philippines, Japan, South Korea
-  and India have hand-picked local favourites, searched in the local language. Every other country
-  gets picks built from its name and language (for example "Angola songs", "Polish songs").
-- **Search ranking**: every search, typed or by voice, from the TV or a phone, is ranked by YouTube
-  for that country and language. It favours local music; it doesn't hide anything else.
-- The choice is remembered, and each country keeps its own saved results.
+With a key, search uses the official YouTube Data API (about 100 searches a day; results are cached for 24 hours). It falls back to key-less search when the quota runs out.
 
-## Looks right on any TV
+1. In <https://console.cloud.google.com/>, create a project and enable **YouTube Data API v3**.
+2. Create an API key. Restrict it to Android apps (package `com.karaoketv` and your SHA-1 from `./gradlew signingReport`) and to YouTube Data API v3.
+3. Add `YOUTUBE_API_KEY=AIza…` to `local.properties` and rebuild.
 
-The whole interface scales with the screen: it's designed on the Android TV 960 x 540 canvas and stretched
-to fill your TV exactly, whatever its resolution (720p, 1080p, 4K) or size. On a 75" TV everything is simply
-bigger, and the proportions never change. Content stays inside the TV-safe area so nothing is cut off by
-overscan, and text sizes are chosen to be read from across the room.
+Don't put a key in a public repository's builds: anyone could extract it from the APK.
 
-## Build it
+## Build and install
 
-### Option A: in the cloud, no Android Studio (easiest)
+**In the cloud (GitHub):**
 
-1. Create a free account on <https://github.com>, make a **new repository** (public), and upload the
-   contents of this folder (drag and drop on the repository page, then **Commit**).
-2. GitHub builds the app automatically (tab **Actions**, takes ~5 minutes). When it's done, the APK is
-   under **Releases** on the right.
-3. On the Shield, install the free **Downloader** app from the Play Store and enter:
-   `https://github.com/YOUR-NAME/YOUR-REPO/releases/latest/download/KaraokeNight.apk`
-   It downloads and installs the app. To update later, enter the same address again.
+1. Upload this folder to a GitHub repository. GitHub Actions builds the APK (about 5 minutes) and publishes it under **Releases**.
+2. On the Shield, install **Downloader** and enter
+   `https://github.com/YOUR-NAME/YOUR-REPO/releases/latest/download/KaraokeNight.apk`.
+   Enter the same address again to update.
+3. Optional secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` sign every build with your key, so updates install over the old version without losing the hall of fame.
 
-Optional repository secrets (Settings → Secrets and variables → Actions):
-`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` sign every build with your own key, so
-updates install over the old version (otherwise each cloud build has a new key and you must uninstall
-first, which resets the hall of fame). Don't add a YouTube API key to a public repository's builds: anyone
-could download the APK and extract it.
+**With Android Studio:** open the folder and run `./gradlew assembleRelease`. The APK is in `app/build/outputs/apk/release/`. To sign with your own key, add a `keystore.properties` with `storeFile`, `storePassword`, `keyAlias`, `keyPassword`.
 
-### Option B: on your computer with Android Studio
+**With adb:** enable Network debugging on the Shield (Developer options), then `adb connect <shield-ip>:5555` and `adb install -r <apk>`.
 
-1. Install **Android Studio** from <https://developer.android.com/studio> and open this folder (**File → Open**).
-2. Build the small, optimised version. In Android Studio's **Terminal**:
+Requirements: Android Gradle Plugin 9.5, Gradle 9.6, JDK 17. Min Android 7.0.
 
-   ```
-   ./gradlew assembleRelease          (Windows: gradlew assembleRelease)
-   ```
+## Built for the Shield's 2 GB
 
-   The APK is `app/build/outputs/apk/release/app-release.apk` (around 1–2 MB).
-   *(Optional: to sign with your own key instead of the debug key, create `keystore.properties` with
-   `storeFile`, `storePassword`, `keyAlias`, `keyPassword`.)*
-
-## Install it on the Shield
-
-**Over Wi-Fi with adb (easiest for updates)**
-
-1. Shield: **Settings → Device Preferences → About**, click **Build** 7 times.
-2. **Settings → Device Preferences → Developer options → Network debugging**: on. Note the IP address.
-3. Computer: `adb connect 192.168.1.50:5555` (the Shield's IP), accept the prompt on the TV, then
-   `adb install -r app/build/outputs/apk/release/app-release.apk`.
-
-**No commands**: send the APK with the **Send files to TV** app (phone → Shield) and open it with a file manager.
-
-It appears in the Shield's app row as **Karaoke Night**.
-
-## Made for the Shield's limited memory, with no leaks
-
-- One screen instead of several; the YouTube player (the biggest memory user) only exists while the party
-  is running and is released in the lobby.
-- Small thumbnails decoded at half memory, a capped image cache, and caches dropped when Android asks for memory.
-- Key-less search reads YouTube's reply as a stream instead of loading it all into memory.
-- Lobby music is decoded a little at a time (never loaded whole into memory) and fed to the speaker
-  as one continuous stream, so the loop point has no gap or click; effects are tiny.
-- No heavy libraries: no RecyclerView, image or QR libraries. The QR code generator and the phone server
-  are built in. Release builds are shrunk with R8.
-- Small files on the device, however long it's used: every saved list has a cap and is stored as short
-  rows without repeated field names (scores keep the all-time top 40 solo and top 20 duets plus tonight;
-  achievements and players up to 150 singers; the last 10 songs; searches expire after a day, 40 at most).
-  A typical party leaves well under 20 KB of scores, players, history and achievements together.
-  Data saved by older versions is converted automatically the first time.
-- Pure Java/Kotlin with no native code, so it runs on the Shield's 32-bit (armeabi-v7a) and 64-bit setups alike.
-- Leak-proofing: background work (searches, thumbnails, the phone server) only keeps weak links to the screen,
-  every timer, animation, sound and player is released when the app closes, and the YouTube player is
-  replaced with a fresh one every 6 songs so its web page can't keep growing during a long party.
-- To check it yourself: debug builds (`./gradlew assembleDebug`) include **LeakCanary** and Android's
-  StrictMode leak checks, which report any leaked screen, stream or receiver in Logcat. Release builds don't include them.
+- One main screen. The YouTube player exists only during a party and is replaced every 6 songs.
+- Capped caches, small thumbnails, streamed search results and lobby music.
+- Every saved list is capped and stored compactly (a typical party uses under 20 KB).
+- No native code (works on 32-bit and 64-bit), no heavy libraries, R8-shrunk release builds.
+- Debug builds include LeakCanary and StrictMode.
 
 ## Customise
 
 | What | Where |
 |---|---|
-| Score range (65-100, early stops 0-65) | `Scores.kt` → `Judge` |
-| Quick picks | `Countries.kt`: `INTERNATIONAL_PICKS`, and `HAND` for a country's own picks (phones get the same ones) |
-| How generous the judge is | `Scores.kt`: `83 + 8 * rng.nextGaussian()`: raise 83 for higher scores, raise 8 for more spread |
-| Judge comments | `Scores.kt` → `lines` |
-| How often the judges / emoji crowd appear | `Scores.kt` → `Extras.CHANCE` (0.12) and `MIN_SCORE` (85) |
-| Score-screen highlights | `Scores.kt` → `Badges` |
-| Achievements (add, change, remove) | `Achievements.kt` → `Achievements.ALL` and `earnedBy` |
-| Genres and the artists/words that identify them | `Genres.kt` → `Genres.ALL` |
-| How many songs "🕘 Played" keeps | `Scores.kt` → `History.MAX` (10) |
-| Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops from end to start without a gap); its default and loudest levels are `Audio.kt` → `LobbyMusic.DEFAULT_VOLUME` / `MAX_LEVEL` |
-| Autostart delay | `MainActivity.kt` → `AUTOSTART_MS` (30 s) |
-| Surprise stage names | `MainActivity.kt` → `STAGE_NAMES` |
-| Fresh player every N songs | `MainActivity.kt` → `RECYCLE_PLAYER_AFTER` |
-| Max songs per singer | `Party.kt` → `MAX_PER_SINGER` |
-| "Big finish" timing / lobby music after the score | `MainActivity.kt` → `FINALE_LEAD_S`, `FINALE_MS`, `SCORE_MUSIC_DELAY_MS` |
+| Score range and spread | `Scores.kt`, `Judge` |
+| How much cheers move the score | `Scores.kt`, `Judge.CROWD_POINTS`, and `Party.kt`, `REACTION_VOTES` |
+| Judge comments | `Scores.kt`, `Judge.lines` |
+| Rare judges and emoji crowd | `Scores.kt`, `Extras.CHANCE` and `MIN_SCORE` |
+| Quick picks | `Countries.kt`, `INTERNATIONAL_PICKS` and `HAND` |
+| Surprise me songs | `Surprise.kt`, `WORLD` and `LOCAL` |
+| Achievements | `Achievements.kt` |
+| Genres | `Genres.kt` |
+| Lobby music | `res/raw/lobby.ogg`; levels in `Audio.kt`, `LobbyMusic` |
+| Random stage names | `MainActivity.kt`, `STAGE_NAMES` |
+| Autostart delay, finale timing | `MainActivity.kt`, `AUTOSTART_MS`, `FINALE_LEAD_S`, `FINALE_MS` |
+| Max songs per singer | `Party.kt`, `MAX_PER_SINGER` |
 
 ## Troubleshooting
 
-- **The app stopped**: open it again. It shows what went wrong instead of the party; take a photo of
-  that screen to get it fixed, then press **Try again**.
-- **No QR code / "Connect the TV to your home network"**: the Shield isn't connected to Wi-Fi or Ethernet.
-- **🎙 voice search**: the first time, Android asks to allow the microphone (say yes). Then press 🎙 and
-  speak: the words appear in the search box. Press 🎙 again to stop. The remote's own microphone button
-  opens Google Assistant instead, not this app.
-- **Subtitles on a video**: the app switches YouTube's captions off when a song starts. Subtitles that
-  are part of the video picture itself (burned in) can't be removed.
-- **Phone says "Scan the QR code on the TV"**: scan again; the link includes the party key.
-- **"YouTube search is unavailable"** without a key: YouTube changed something. Add an API key (above).
-- **A video doesn't play**: some owners block playback outside YouTube, and no app can get around
-  that. This includes most KaraFun videos and many Sing King ones, so you'll see fewer of those. Search
-  results are checked first, and videos whose owner blocks this are left out (search reads further
-  pages of YouTube's results to make up for them). If a video
-  still refuses, the app plays a different karaoke version of the same song instead (it tries twice, then
-  moves on), and remembers the refusal so that video no longer shows up. A channel whose videos refuse
-  three times is hidden. To forget all of this, clear the app's storage in Android's app settings.
-- **Ads**: YouTube may show ads before some videos, as in any app using YouTube's official player.
-- **Video suggestions**: YouTube shows suggestions over a paused video and when a video ends, and no app
-  can switch them off. Karaoke Night covers a paused video, and in the last second of every song a
-  "🎤 Big finish!" screen takes over for 5 seconds (press OK or tap to skip), then the score.
+- **The app stopped:** open it again. It shows the error; take a photo, then press **Try again**.
+- **No QR code:** the TV isn't on Wi-Fi or Ethernet.
+- **Voice search:** allow the microphone the first time. The remote's own mic button opens Google Assistant, not this app.
+- **Subtitles:** the app turns YouTube captions off. Captions burned into the video can't be removed.
+- **"YouTube search is unavailable":** YouTube changed something. Add an API key.
+- **Ads and suggestions:** YouTube may show ads. Suggestions over a paused or ending video are covered by the app.
+- **Reset blocked videos:** clear the app's storage in Android settings (this also clears scores).
 
----
-
-Playback uses the open-source [android-youtube-player](https://github.com/PierfrancescoSoffritti/android-youtube-player)
-library (YouTube's official embedded player in a WebView). Lobby music and sound effects were generated for this app.
+Playback uses [android-youtube-player](https://github.com/PierfrancescoSoffritti/android-youtube-player). Lobby music and sound effects were made for this app.

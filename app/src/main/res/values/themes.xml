@@ -29,6 +29,16 @@
         <item name="android:background">@drawable/btn_primary</item>
     </style>
 
+    <!-- Small section heading in the "Who's singing?" pop-up -->
+    <style name="PickerSection">
+        <item name="android:layout_width">96dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:letterSpacing">0.2</item>
+        <item name="android:textColor">@color/neon_cyan</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
     <style name="IconButton">
         <item name="android:layout_width">48dp</item>
         <item name="android:layout_height">48dp</item>

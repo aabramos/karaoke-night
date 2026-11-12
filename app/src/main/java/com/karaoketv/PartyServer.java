@@ -50,6 +50,11 @@ public final class PartyServer {
         // Removing players is deliberately not offered to phones: only the TV can do that.
     }
 
+    /** A failure whose message is written for the guest: their phone shows it as is. */
+    public static final class GuestError extends Exception {
+        public GuestError(String message) { super(message); }
+    }
+
     /** The answer to adding a song: an error for the guest, or the new song's key. */
     public static final class Added {
         public final String error;
@@ -215,7 +220,8 @@ public final class PartyServer {
                     try {
                         send(out, 200, "application/json; charset=utf-8", b.searchJson(q.trim()));
                     } catch (Exception e) {
-                        send(out, 502, "application/json", "{\"error\":\"Search failed. Try again.\"}");
+                        send(out, 502, "application/json; charset=utf-8", "{\"error\":" +
+                                jsonString(e instanceof GuestError ? e.getMessage() : "Search failed. Try again.") + "}");
                     } finally {
                         searchSlots.release();
                     }
@@ -230,7 +236,8 @@ public final class PartyServer {
                     try {
                         send(out, 200, "application/json; charset=utf-8", b.surpriseJson());
                     } catch (Exception e) {
-                        send(out, 502, "application/json", "{\"error\":\"The dice fell off the table. Try again!\"}");
+                        send(out, 502, "application/json; charset=utf-8", "{\"error\":" +
+                                jsonString(e instanceof GuestError ? e.getMessage() : "The dice fell off the table. Try again!") + "}");
                     } finally {
                         searchSlots.release();
                     }

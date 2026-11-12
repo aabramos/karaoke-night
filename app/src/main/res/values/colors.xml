@@ -7,4 +7,6 @@
     <color name="text_main">#FFFFFF</color>
     <color name="text_dim">#B9AEDB</color>
     <color name="scrim">#D9080412</color>
+    <!-- Full screens (hall of fame, achievements): the lobby behind shouldn't show through -->
+    <color name="scrim_strong">#F5080412</color>
 </resources>

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- "Who's singing?": 1. Solo or duet, 2. pick the player(s), 3. Sing now / Add (or Cancel).
+     Picking only selects; nothing starts until the button at the bottom. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -6,79 +8,215 @@
     android:clickable="true">
 
     <LinearLayout
-        android:layout_width="640dp"
+        android:layout_width="720dp"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:background="@drawable/panel_bg"
-        android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:padding="26dp">
+        android:paddingStart="28dp"
+        android:paddingTop="20dp"
+        android:paddingEnd="28dp"
+        android:paddingBottom="20dp">
 
         <TextView
             android:id="@+id/pickerTitle"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="sans-serif-black"
             android:gravity="center"
             android:text="🎤 WHO'S SINGING?"
             android:textColor="#FFFFFF"
-            android:textSize="28sp" />
+            android:textSize="26sp" />
 
         <TextView
             android:id="@+id/pickerSong"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:gravity="center"
-            android:maxLines="2"
+            android:maxLines="1"
             android:textColor="@color/text_dim"
             android:textSize="15sp" />
 
+        <!-- 1. Mode -->
+        <LinearLayout
+            android:id="@+id/pickerModeRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                style="@style/PickerSection"
+                android:text="MODE" />
+
+            <TextView
+                android:id="@+id/pickerSolo"
+                style="@style/TvButton"
+                android:layout_height="46dp"
+                android:minWidth="140dp"
+                android:text="🎤 Solo" />
+
+            <TextView
+                android:id="@+id/pickerDuet"
+                style="@style/TvButton"
+                android:layout_height="46dp"
+                android:layout_marginStart="10dp"
+                android:minWidth="140dp"
+                android:text="👫 Duet" />
+        </LinearLayout>
+
+        <!-- 2. Players -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/pickerPlayersLabel"
+                style="@style/PickerSection"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:text="PLAYERS" />
+
+            <!-- Pages, when there are more players than fit -->
+            <LinearLayout
+                android:id="@+id/pickerPager"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/pickerPrev"
+                    style="@style/TvButton"
+                    android:layout_width="46dp"
+                    android:layout_height="38dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:contentDescription="Previous players"
+                    android:text="‹" />
+
+                <TextView
+                    android:id="@+id/pickerPageText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:textColor="@color/text_dim"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/pickerNext"
+                    style="@style/TvButton"
+                    android:layout_width="46dp"
+                    android:layout_height="38dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:contentDescription="More players"
+                    android:text="›" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Name buttons, made in the code (two rows of four) -->
         <LinearLayout
             android:id="@+id/pickerNames"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="center_horizontal"
+            android:layout_marginTop="6dp"
+            android:minHeight="112dp"
+            android:gravity="center"
             android:orientation="vertical" />
 
+        <!-- Player tools: random stage name, a new player (also filters the names), remove players -->
         <LinearLayout
-            android:id="@+id/pickerInputRow"
+            android:id="@+id/pickerTools"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/pickerRandom"
+                style="@style/TvButton"
+                android:layout_height="48dp"
+                android:minWidth="0dp"
+                android:contentDescription="Random stage name"
+                android:text="🎲 Random" />
+
+            <EditText
+                android:id="@+id/pickerInput"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:background="@drawable/field_bg"
+                android:hint="＋ New player…"
+                android:imeOptions="actionDone|flagNoExtractUi"
+                android:importantForAutofill="no"
+                android:inputType="textPersonName|textCapWords"
+                android:maxLength="20"
+                android:maxLines="1"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:textColor="@color/text_main"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/pickerRemove"
+                style="@style/TvButton"
+                android:layout_height="48dp"
+                android:layout_marginStart="10dp"
+                android:minWidth="0dp"
+                android:contentDescription="Remove players"
+                android:text="🗑 Remove" />
+        </LinearLayout>
+
+        <!-- 3. Who's chosen, and go -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="14dp"
+            android:background="#33FFFFFF" />
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <EditText
-                android:id="@+id/pickerInput"
+            <TextView
+                android:id="@+id/pickerSummary"
                 android:layout_width="0dp"
-                android:layout_height="52dp"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:background="@drawable/field_bg"
-                android:hint="＋ New singer…"
-                android:imeOptions="actionDone|flagNoExtractUi"
-                android:importantForAutofill="no"
-                android:inputType="textPersonName|textCapWords"
-                android:maxLength="20"
+                android:accessibilityLiveRegion="polite"
+                android:ellipsize="end"
                 android:maxLines="1"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
                 android:textColor="@color/text_main"
-                android:textSize="17sp" />
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/pickerCancel"
+                style="@style/TvButton"
+                android:minWidth="110dp"
+                android:text="Cancel" />
 
             <TextView
                 android:id="@+id/pickerGo"
                 style="@style/TvButton.Primary"
-                android:layout_marginStart="12dp"
-                android:text="Add" />
+                android:layout_marginStart="10dp"
+                android:minWidth="170dp"
+                android:text="🎤 Sing now!" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/pickerCancel"
-            style="@style/TvButton"
-            android:layout_marginTop="14dp"
-            android:text="Cancel" />
     </LinearLayout>
 </FrameLayout>

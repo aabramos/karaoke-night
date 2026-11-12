@@ -18,12 +18,22 @@ object Judge {
     /** Stopping before this isn't scored at all (a wrong song stopped straight away). */
     const val TOO_SHORT = 0.1
 
-    /** Null when the singer stopped too early to deserve a score. */
-    fun score(watchedFraction: Double, rng: Random = this.rng): Int? {
+    /** Points per step of the crowd's vote: a room that's all 🔥 (+2) adds 5, all 🍅 (-2) takes 5. */
+    const val CROWD_POINTS = 2.5
+
+    /** The crowd's hidden vote: the average of each phone's last cheer (-2 … +2); 0 without votes. */
+    fun crowd(votes: Collection<Int>): Double = if (votes.isEmpty()) 0.0 else votes.average().coerceIn(-2.0, 2.0)
+
+    /**
+     * Null when the singer stopped too early to deserve a score. [crowd] (see [crowd]) shifts the
+     * random score a little up or down; it never crosses the bands (65+ for a finished song).
+     */
+    fun score(watchedFraction: Double, crowd: Double = 0.0, rng: Random = this.rng): Int? {
         if (watchedFraction < TOO_SHORT) return null
-        if (watchedFraction >= FINISHED) return (83 + 8 * rng.nextGaussian()).roundToInt().coerceIn(MIN, 100)
+        val nudge = CROWD_POINTS * crowd.coerceIn(-2.0, 2.0)
+        if (watchedFraction >= FINISHED) return (83 + nudge + 8 * rng.nextGaussian()).roundToInt().coerceIn(MIN, 100)
         val progress = watchedFraction / FINISHED                      // 0.1 … 1
-        return (MIN * progress + 6 * rng.nextGaussian()).roundToInt().coerceIn(0, MIN)
+        return (MIN * progress + nudge * 0.6 + 6 * rng.nextGaussian()).roundToInt().coerceIn(0, MIN)
     }
 
     private val lines = listOf(
