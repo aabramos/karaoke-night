@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One volume for songs, countdown and score sounds (the lobby music has its own fixed, very low level) -->
+<!-- Two volumes: songs + countdown/score sounds, and the lobby music on its own -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -13,7 +13,7 @@
         android:background="@drawable/panel_bg"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:padding="26dp">
+        android:padding="24dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -26,31 +26,48 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:gravity="center"
-            android:text="Songs and sound effects play at this level. The lobby music always\nplays very quietly. The TV's own volume and the microphones are separate."
+            android:text="The TV's own volume and the microphones are separate."
             android:textColor="@color/text_dim"
-            android:textSize="14sp" />
+            android:textSize="13sp" />
 
-        <TextView
-            android:id="@+id/volumeValue"
-            android:layout_width="wrap_content"
+        <!-- Songs, countdown and score sounds -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:fontFamily="sans-serif-black"
-            android:shadowColor="@color/neon_pink"
-            android:shadowRadius="18"
-            android:textColor="#FFFFFF"
-            android:textSize="44sp" />
+            android:layout_marginTop="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="🎤 Songs &amp; sound effects"
+                android:textColor="@color/text_main"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/volumeValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-black"
+                android:shadowColor="@color/neon_pink"
+                android:shadowRadius="14"
+                android:textColor="#FFFFFF"
+                android:textSize="24sp" />
+        </LinearLayout>
 
         <!-- Focusable: the remote's ◀ ▶ move it; on phones it's dragged -->
         <SeekBar
             android:id="@+id/volumeSlider"
-            android:contentDescription="Volume for songs and sound effects"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="46dp"
             android:layout_marginTop="4dp"
             android:background="@drawable/chip_bg"
+            android:contentDescription="Volume for songs and sound effects"
             android:focusable="true"
             android:max="100"
             android:paddingStart="24dp"
@@ -58,11 +75,53 @@
             android:progressDrawable="@drawable/volume_track"
             android:thumbTint="@color/neon_pink" />
 
+        <!-- Lobby music, usually much lower: it plays while people talk -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="🎵 Lobby music"
+                android:textColor="@color/text_main"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/lobbyValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-black"
+                android:shadowColor="@color/neon_cyan"
+                android:shadowRadius="14"
+                android:textColor="#FFFFFF"
+                android:textSize="24sp" />
+        </LinearLayout>
+
+        <SeekBar
+            android:id="@+id/lobbySlider"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/chip_bg"
+            android:contentDescription="Lobby music volume"
+            android:focusable="true"
+            android:max="100"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:progressDrawable="@drawable/volume_track"
+            android:thumbTint="@color/neon_cyan" />
+
         <TextView
             android:id="@+id/volumeHint"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="8dp"
             android:text="◀ ▶ to change"
             android:textColor="@color/text_dim"
             android:textSize="13sp" />
@@ -70,7 +129,7 @@
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="14dp"
             android:orientation="horizontal">
 
             <TextView

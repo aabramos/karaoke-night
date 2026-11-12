@@ -14,25 +14,37 @@ data class Achievement(val id: String, val icon: String, val title: String, val 
 data class SingerRecord(val name: String, val songs: Int, val best: Int?, val unlocked: Map<String, Long>, val lastNight: Long)
 
 object Achievements {
+    /** Achievement names and descriptions are kept short so they fit their tiles on the TV. */
+    const val MAX_TITLE = 16
+    const val MAX_HOW = 25
+
     /** The main achievements. Score ones say "points" in their name, so nobody reads "90" as the 1990s. */
     val MAIN = listOf(
         Achievement("first", "🎤", "First song", "Sing your first song"),
         Achievement("s85", "🌟", "85 points", "Score 85 points or more"),
         Achievement("s90", "💎", "90 points", "Score 90 points or more"),
         Achievement("s95", "🏅", "95 points", "Score 95 points or more"),
-        Achievement("s100", "💯", "Perfect 100", "Score a perfect 100 points"),
-        Achievement("champ", "👑", "Champion", "Top the night's board (3+ singers)"),
+        Achievement("s100", "💯", "Perfect 100", "Score a perfect 100"),
+        Achievement("champ", "👑", "Champion", "Be #1 with 3+ singers"),
         Achievement("pb", "📈", "Getting better", "Beat your own best score"),
-        Achievement("comeback", "🚀", "Comeback", "85+ right after a score under 75"),
-        Achievement("streak", "🔥", "On fire", "Three 85+ scores in a row in one night"),
+        Achievement("comeback", "🚀", "Comeback", "85+ after a score < 75"),
+        Achievement("streak", "🔥", "On fire", "Three 85+ scores in a row"),
         Achievement("hat", "🎩", "Hat-trick", "Sing 3 songs in one night"),
         Achievement("marathon", "🏃", "Marathon", "Sing 5 songs in one night"),
+        Achievement("unstoppable", "💪", "Unstoppable", "Sing 10 songs in a night"),
         Achievement("duet", "👫", "Duet partner", "Sing a duet"),
         Achievement("dream", "💞", "Dream team", "Score 90+ in a duet"),
+        Achievement("harmony", "🎶", "Perfect harmony", "Score 95+ in a duet"),
+        Achievement("bff", "👯", "Best friends", "3 duets with one partner"),
+        Achievement("butterfly", "🦋", "Social butterfly", "Duets with 3 people"),
+        Achievement("encore", "🔁", "Encore!", "Same song twice a night"),
+        Achievement("lucky", "🎲", "Lucky 77", "Score exactly 77 points"),
+        Achievement("stagefright", "🙈", "Stage fright", "Stop a song early"),
+        Achievement("tomato", "🍅", "Tomato magnet", "Score under 40 points"),
         Achievement("owl", "🦉", "Night owl", "Sing between 1 and 5 am"),
         Achievement("regular", "🎙", "Regular", "Sing 10 songs"),
         Achievement("legend", "🏆", "Legend", "Sing 50 songs"),
-        Achievement("nights", "🎉", "Party animal", "Sing at 3 different parties"),
+        Achievement("nights", "🎉", "Party animal", "Sing at 3 parties"),
     )
     /** One per genre: the first time someone sings it (see [Genres]). */
     val GENRES = Genres.ALL.map { Achievement(genreId(it.id), it.icon, it.title, it.how) }
@@ -41,15 +53,21 @@ object Achievements {
     private val byId = ALL.associateBy { it.id }
     fun get(id: String) = byId[id]
 
+    /** Both singers of a duet, in a fixed order, to recognise the same pair in any order. */
+    private fun pair(entry: Entry) = people(entry).map { it.lowercase() }.sorted()
+
     /**
      * Every achievement this performance qualifies for (already unlocked ones included; the
      * book keeps only the new ones). [mineBefore]: this person's earlier scores, solo and duets.
      * [bestSoloBefore]: their best solo score so far, or null. [rank]: place among tonight's
      * scores of the same kind (0 = unknown). [soloSingersTonight]: different solo singers tonight.
+     * [person]: whose achievements these are (for duets: which of the two). [stoppedEarly]: the
+     * song was stopped before the end.
      */
     fun earnedBy(
         entry: Entry, mineBefore: List<Entry>, bestSoloBefore: Int?, songsAfter: Int, nightsAfter: Int,
         rank: Int, soloSingersTonight: Int, hour: Int, genres: List<String> = emptyList(),
+        person: String = entry.name, stoppedEarly: Boolean = false,
     ): Set<String> {
         val ids = LinkedHashSet<String>()
         val s = entry.score
@@ -58,6 +76,9 @@ object Achievements {
         if (s >= 90) ids += "s90"
         if (s >= 95) ids += "s95"
         if (s >= 100) ids += "s100"
+        if (s == 77) ids += "lucky"
+        if (s < 40) ids += "tomato"
+        if (stoppedEarly) ids += "stagefright"
         if (!entry.duet && rank == 1 && soloSingersTonight >= 3) ids += "champ"
         if (!entry.duet && bestSoloBefore != null && s > bestSoloBefore) ids += "pb"
         val tonight = mineBefore.filter { it.time >= entry.time - NIGHT_MS && it.time <= entry.time }.sortedBy { it.time }
@@ -67,8 +88,19 @@ object Achievements {
         val songsTonight = tonight.size + 1
         if (songsTonight >= 3) ids += "hat"
         if (songsTonight >= 5) ids += "marathon"
-        if (entry.duet) ids += "duet"
-        if (entry.duet && s >= 90) ids += "dream"
+        if (songsTonight >= 10) ids += "unstoppable"
+        val song = shortTitle(entry.song).lowercase()
+        if (song.isNotEmpty() && tonight.any { shortTitle(it.song).lowercase() == song }) ids += "encore"
+        if (entry.duet) {
+            ids += "duet"
+            if (s >= 90) ids += "dream"
+            if (s >= 95) ids += "harmony"
+            val duetsTonight = tonight.filter { it.duet }
+            if (duetsTonight.count { pair(it) == pair(entry) } + 1 >= 3) ids += "bff"
+            val me = person.lowercase()
+            val partners = (duetsTonight + entry).flatMap { pair(it) }.filter { it != me }.toSet()
+            if (partners.size >= 3) ids += "butterfly"
+        }
         if (hour in 1..4) ids += "owl"
         if (songsAfter >= 10) ids += "regular"
         if (songsAfter >= 50) ids += "legend"
@@ -111,7 +143,7 @@ class AchievementBook(context: Context) {
     private fun recs(): LinkedHashMap<String, Rec> {
         cache?.let { return it }
         val map = LinkedHashMap<String, Rec>()
-        val rows = runCatching { JSONArray(prefs.getString("b", "[]")) }.getOrElse { JSONArray() }
+        val rows = runCatching { JSONArray(prefs.getString("b", null) ?: "[]") }.getOrElse { JSONArray() }
         for (i in 0 until rows.length()) {
             val r = rows.optJSONArray(i) ?: continue
             val name = cleanName(r.optString(0)) ?: continue
@@ -121,7 +153,7 @@ class AchievementBook(context: Context) {
         }
         // 3.11 kept one object per singer, with times in milliseconds
         if (rows.length() == 0) runCatching {
-            val root = JSONObject(prefs.getString("book", "{}"))
+            val root = JSONObject(prefs.getString("book", null) ?: "{}")
             root.keys().forEach { key ->
                 val o = root.optJSONObject(key) ?: return@forEach
                 val name = cleanName(o.optString("n")) ?: return@forEach
@@ -153,7 +185,7 @@ class AchievementBook(context: Context) {
      */
     @Synchronized
     fun record(entry: Entry, before: List<Entry>, rank: Int, hour: Int, genres: List<String> = emptyList(),
-               persist: Boolean = true): List<Pair<String, Achievement>> {
+               stoppedEarly: Boolean = false, persist: Boolean = true): List<Pair<String, Achievement>> {
         val out = ArrayList<Pair<String, Achievement>>()
         val since = entry.time - Achievements.NIGHT_MS
         val soloTonight = (before.filter { !it.duet && it.time >= since }.map { it.name.lowercase() } +
@@ -166,7 +198,8 @@ class AchievementBook(context: Context) {
             r.songs++
             if (r.lastNight != night) { r.lastNight = night; r.nights++ }
             val mine = before.filter { Achievements.involves(it, person) }
-            val ids = Achievements.earnedBy(entry, mine, r.best.takeIf { it >= 0 }, r.songs, r.nights, rank, soloTonight, hour, genres)
+            val ids = Achievements.earnedBy(entry, mine, r.best.takeIf { it >= 0 }, r.songs, r.nights, rank, soloTonight, hour,
+                genres, person, stoppedEarly)
             if (!entry.duet && entry.score > r.best) r.best = entry.score
             ids.forEach { id ->
                 if (id !in r.unlocked) {
@@ -213,26 +246,29 @@ class AchievementBook(context: Context) {
     }
 
     /**
-     * Once, when genre achievements first appear (3.16): awards them for the songs already in the
-     * saved scores, dated to the party they were sung at.
+     * Once per new batch of achievements (genres in 3.16, the fun ones in 3.17): awards them for
+     * the scores already saved, dated to the party they were sung at. Counts that the saved
+     * scores can't tell (songs ever sung, parties, personal bests, ranks) are left out here.
      */
     @Synchronized
-    fun backfillGenres(entries: List<Entry>) {
-        if (prefs.getBoolean("genres1", false)) return
+    fun backfillNew(entries: List<Entry>) {
+        if (prefs.getBoolean("more1", false)) return
         var changed = false
+        val done = ArrayList<Entry>()
+        val cal = java.util.Calendar.getInstance()
         entries.sortedBy { it.time }.forEach { e ->
+            cal.timeInMillis = e.time
             val genres = Genres.detect(e.song, null)
-            if (genres.isEmpty()) return@forEach
             Achievements.people(e).forEach { person ->
                 val r = recs()[person.lowercase()] ?: return@forEach
-                genres.forEach { g ->
-                    val id = Achievements.genreId(g)
-                    if (id !in r.unlocked) { r.unlocked[id] = Achievements.nightOf(e.time); changed = true }
-                }
+                val mine = done.filter { Achievements.involves(it, person) }
+                Achievements.earnedBy(e, mine, null, 0, 0, 0, 0, cal.get(java.util.Calendar.HOUR_OF_DAY), genres, person)
+                    .forEach { id -> if (id !in r.unlocked) { r.unlocked[id] = Achievements.nightOf(e.time); changed = true } }
             }
+            done += e
         }
         if (changed) save()
-        prefs.edit().putBoolean("genres1", true).apply()
+        prefs.edit().putBoolean("more1", true).apply()
     }
 
     companion object {

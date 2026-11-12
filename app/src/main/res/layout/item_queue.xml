@@ -13,11 +13,11 @@
 
     <TextView
         android:id="@+id/qAvatar"
-        android:layout_width="30dp"
-        android:layout_height="30dp"
+        android:layout_width="26dp"
+        android:layout_height="26dp"
         android:gravity="center"
         android:textColor="#0B0614"
-        android:textSize="15sp"
+        android:textSize="13sp"
         android:textStyle="bold" />
 
     <LinearLayout
@@ -34,7 +34,7 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="@color/text_main"
-            android:textSize="15sp"
+            android:textSize="13sp"
             android:textStyle="bold" />
 
         <TextView
@@ -44,12 +44,12 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="@color/text_dim"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/qBadge"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="12sp" />
+        android:textSize="11sp" />
 </LinearLayout>

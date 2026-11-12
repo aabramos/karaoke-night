@@ -306,7 +306,7 @@ object QueueStore {
     }
 
     fun restore(prefs: android.content.SharedPreferences, queue: PartyQueue) {
-        val arr = runCatching { JSONArray(prefs.getString("q", null) ?: prefs.getString("queue", "[]")) }.getOrNull() ?: return
+        val arr = runCatching { JSONArray(prefs.getString("q", null) ?: prefs.getString("queue", null) ?: "[]") }.getOrNull() ?: return
         for (i in 0 until arr.length()) {
             val r = arr.optJSONArray(i)
             val o = if (r == null) arr.optJSONObject(i) ?: continue else null      // before 3.12: objects

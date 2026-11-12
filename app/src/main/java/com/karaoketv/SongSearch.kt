@@ -107,8 +107,8 @@ class SongSearch(context: Context) {
 
     init {
         runCatching {
-            playPrefs.getString("ids", "")!!.split(',').filter(::isVideoId).forEach { badIds += it }
-            val o = JSONObject(playPrefs.getString("strikes", "{}")!!)
+            (playPrefs.getString("ids", null) ?: "").split(',').filter(::isVideoId).forEach { badIds += it }
+            val o = JSONObject(playPrefs.getString("strikes", null) ?: "{}")
             o.keys().forEach { strikes[it] = o.optInt(it) }
             // Older versions kept up to 3000: trim to today's limit once
             if (badIds.size > MAX_BAD_IDS) {

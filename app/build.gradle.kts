@@ -27,8 +27,8 @@ android {
         applicationId = "com.karaoketv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 22
-        versionName = "3.16"
+        versionCode = 23
+        versionName = "3.17"
         buildConfigField("String", "YOUTUBE_API_KEY", "\"${localProps.getProperty("YOUTUBE_API_KEY", "").trim()}\"")
     }
 

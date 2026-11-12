@@ -13,11 +13,12 @@ import android.media.SoundPool
  */
 class LobbyMusic(context: Context) {
     companion object {
-        /**
-         * Fixed, very quiet background level (about -28 dB): enough to fill the silence between
-         * songs, never loud enough to annoy anyone. Deliberately not adjustable from the app.
-         */
-        const val LEVEL = 0.04f
+        /** The loudest it can be (about -12 dB): even at 100% it stays background music. */
+        const val MAX_LEVEL = 0.25f
+        /** 40% = 0.04 (about -28 dB), the quiet level it always had before it got its own slider. */
+        const val DEFAULT_VOLUME = 40
+        /** Slider 0-100 → playback level, on a curve so each step sounds about as big as the last. */
+        fun levelFor(volume: Int): Float = MAX_LEVEL * (volume.coerceIn(0, 100) / 100f).let { it * it }
     }
 
     private val context = context.applicationContext   // never hold on to the screen
@@ -28,6 +29,21 @@ class LobbyMusic(context: Context) {
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
+    /** Whether it should be playing now (false while fading out), so a volume change can't restart it. */
+    private var playing = false
+
+    /** Its own volume, 0-100, separate from the songs' volume. Takes effect straight away. */
+    var volume: Int
+        get() = prefs.getInt("lobby_volume", DEFAULT_VOLUME).coerceIn(0, 100)
+        set(v) {
+            prefs.edit().putInt("lobby_volume", v.coerceIn(0, 100)).apply()
+            if (playing) {
+                fade?.cancel()
+                level = levelFor(v)
+                applyLevel()
+            }
+        }
+
     var enabled: Boolean
         get() = prefs.getBoolean("lobby_music", true)
         set(v) {
@@ -35,10 +51,11 @@ class LobbyMusic(context: Context) {
             if (v) start() else stop()
         }
 
-    /** Fade in over [fadeMs], always to the same very low level (it never follows the volume slider). */
+    /** Fade in over [fadeMs] to the lobby music's own volume. */
     fun start(fadeMs: Long = 1200) {
-        val target = LEVEL
+        val target = levelFor(volume)
         if (!enabled) return
+        playing = true
         val fb = fallback
         if (fb != null) {
             if (!fb.isPlaying) fb.start()
@@ -67,6 +84,7 @@ class LobbyMusic(context: Context) {
 
     /** Fade out and pause (kept ready so it can come back instantly). */
     fun stop(ms: Long = 900) {
+        playing = false
         if (loop == null && fallback == null) return
         fadeTo(0f, ms) {
             loop?.pause()
@@ -75,6 +93,7 @@ class LobbyMusic(context: Context) {
     }
 
     fun release() {
+        playing = false
         fade?.cancel()
         main.removeCallbacksAndMessages(null)
         loop?.release()

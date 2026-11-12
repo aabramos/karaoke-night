@@ -6,23 +6,24 @@ import java.util.Random
 import kotlin.math.roundToInt
 
 /**
- * The "judge". It doesn't listen: it's a weighted random number between 60 and 100, tuned so
- * most performances land between the mid 70s and low 90s, and 95+ is a rare treat.
+ * The "judge". It doesn't listen: a song sung to the end gets a weighted random score between
+ * [MIN] and 100 (most land between the mid 70s and low 90s; 95+ is a rare treat). Stopping early
+ * gets 0 to [MIN], closer to [MIN] the further into the song the singer got.
  */
 object Judge {
     private val rng = Random()
-    const val MIN = 60
+    const val MIN = 65
+    /** From here on the song counts as finished (karaoke videos often end with a silent outro). */
+    const val FINISHED = 0.9
+    /** Stopping before this isn't scored at all (a wrong song stopped straight away). */
+    const val TOO_SHORT = 0.1
 
     /** Null when the singer stopped too early to deserve a score. */
-    fun score(watchedFraction: Double): Int? {
-        if (watchedFraction < 0.25) return null
-        return if (watchedFraction >= 0.9) {
-            (83 + 8 * rng.nextGaussian()).roundToInt().coerceIn(MIN, 100)
-        } else {
-            // Stopped early: a lower score, still never below MIN
-            val base = 62 + 12 * ((watchedFraction - 0.25) / 0.65)
-            (base + 4 * rng.nextGaussian()).roundToInt().coerceIn(MIN, 78)
-        }
+    fun score(watchedFraction: Double, rng: Random = this.rng): Int? {
+        if (watchedFraction < TOO_SHORT) return null
+        if (watchedFraction >= FINISHED) return (83 + 8 * rng.nextGaussian()).roundToInt().coerceIn(MIN, 100)
+        val progress = watchedFraction / FINISHED                      // 0.1 … 1
+        return (MIN * progress + 6 * rng.nextGaussian()).roundToInt().coerceIn(0, MIN)
     }
 
     private val lines = listOf(
@@ -33,8 +34,10 @@ object Judge {
         80 to listOf("Really good!", "Smooth!", "So much style!"),
         75 to listOf("Nice one!", "Solid!", "Rocking it!"),
         70 to listOf("Not bad!", "Brave effort!", "Fun times!"),
-        60 to listOf("Warming up…", "Next one's yours!"),
-        0 to listOf("Well… you tried! 😅", "The spirit was there!"),
+        65 to listOf("Warming up…", "Next one's yours!"),
+        50 to listOf("So close to the end!", "Almost made it!"),
+        30 to listOf("Half a song, full heart!", "A sneak preview!"),
+        0 to listOf("Well… you tried! 😅", "The spirit was there!", "Short and sweet!"),
     )
 
     fun verdict(score: Int): String = lines.first { score >= it.first }.second.let { it[rng.nextInt(it.size)] }
@@ -44,7 +47,77 @@ object Judge {
         score >= 88 -> 4
         score >= 80 -> 3
         score >= 70 -> 2
-        else -> 1
+        score >= 40 -> 1
+        else -> 0
+    }
+}
+
+/** One of the (fake) celebrity judges and the paddle they hold up. */
+data class JudgeCard(val face: String, val name: String, val points: Double, val quip: String) {
+    /** "8.5", "9" or "10" for the paddle. */
+    val paddle: String get() = if (points % 1.0 == 0.0) points.toInt().toString() else String.format(java.util.Locale.US, "%.1f", points)
+}
+
+/**
+ * Rare extras on the score screen, only for great scores (85+), and not every time: usually there
+ * are none, and when there are, it's a surprise which ones (the judges, the emoji crowd, or both).
+ */
+object Extras {
+    enum class Kind { JUDGES, EMOJIS }
+    const val MIN_SCORE = 85
+    /** About one great score in eight gets something. */
+    const val CHANCE = 0.12
+
+    fun pick(score: Int, rng: Random = Random()): Set<Kind> {
+        if (score < MIN_SCORE || rng.nextDouble() >= CHANCE) return emptySet()
+        return when (rng.nextInt(3)) {
+            0 -> setOf(Kind.JUDGES)
+            1 -> setOf(Kind.EMOJIS)
+            else -> setOf(Kind.JUDGES, Kind.EMOJIS)
+        }
+    }
+
+    /**
+     * The judging panel: four judges (two each side of the score, so it stays centred), each
+     * paddle close to the real score out of 10, each judge with their own personality.
+     */
+    fun judges(score: Int, rng: Random = Random()): List<JudgeCard> {
+        val base = score / 10.0
+        fun half(x: Double) = (Math.round(x * 2) / 2.0).coerceIn(6.5, 10.0)
+        fun pick(list: List<String>) = list[rng.nextInt(list.size)]
+        val cat = half(base + rng.nextGaussian() * 0.8)
+        val robot = (Math.round((base + rng.nextGaussian() * 0.3) * 10) / 10.0).coerceIn(6.5, 10.0)
+        val gran = half(base + 0.5 + kotlin.math.abs(rng.nextGaussian()) * 0.4)
+        val parrot = half(base + rng.nextGaussian() * 0.5)
+        return listOf(
+            JudgeCard("🐱", "WHISKERS", cat, pick(when {
+                cat >= 9.5 -> listOf("Purr-fect!", "Meow-velous!", "I'd wake up for that")
+                cat >= 8.5 -> listOf("Not bad, human", "Worth a slow blink", "Acceptable. Feed me.")
+                else -> listOf("*yawns*", "Meh-ow", "I've heard better… from dogs")
+            })),
+            JudgeCard("🤖", "ROBOJUDGE", robot, pick(when {
+                robot >= 9.5 -> listOf("ERROR: TOO GOOD", "SYSTEM OVERLOAD!", "UPLOADING TO MY PLAYLIST")
+                robot >= 8.5 -> listOf("PITCH 97% HUMAN", "BEEP BOOP. APPROVED.", "EMOTION DETECTED")
+                else -> listOf("ACCEPTABLE OUTPUT", "BEEP. OK. BEEP.", "RECALIBRATING EARS…")
+            })),
+            JudgeCard("👵", "GRANDMA ROSA", gran, pick(when {
+                gran >= 9.5 -> listOf("I cried, darling!", "Better than Sinatra!", "Marry this voice!")
+                gran >= 8.5 -> listOf("Lovely, dear!", "So proud of you!", "That's my favourite!")
+                else -> listOf("Have a cookie, sweetie 🍪", "You did your best, dear", "Louder next time, love!")
+            })),
+            JudgeCard("🦜", "CAPTAIN POLLY", parrot, pick(when {
+                parrot >= 9.5 -> listOf("SQUAWK! ENCORE! ENCORE!", "Polly wants a replay!", "Shiver me timbers!")
+                parrot >= 8.5 -> listOf("SQUAWK! Pretty voice!", "Arrr, not bad!", "Polly likes it!")
+                else -> listOf("SQUAWK?", "Polly wants a cracker", "Arrr… again!")
+            })),
+        )
+    }
+
+    /** The crowd: more and happier emojis for higher scores. */
+    fun emojis(score: Int): Pair<List<String>, Float> = when {
+        score >= 95 -> listOf("👏", "😍", "🔥", "🎉", "❤️", "🤩", "🙌", "⭐") to 8f
+        score >= 90 -> listOf("👏", "😍", "🔥", "🎉", "❤️", "🙌") to 5.5f
+        else -> listOf("👏", "🎶", "👍", "❤️", "😊", "🙌") to 4f
     }
 }
 
@@ -106,7 +179,7 @@ class Leaderboard(context: Context) {
             }
         } else {
             // Versions before 3.12 saved one object per score, with field names and milliseconds
-            val arr = runCatching { JSONArray(prefs.getString("entries", "[]")) }.getOrElse { JSONArray() }
+            val arr = runCatching { JSONArray(prefs.getString("entries", null) ?: "[]") }.getOrElse { JSONArray() }
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 list += Entry(o.optString("n"), o.optInt("s"), o.optString("song"), o.optLong("t"), o.optBoolean("d"))
@@ -155,7 +228,7 @@ class Leaderboard(context: Context) {
     @Synchronized
     fun players(): List<String> {
         playerCache?.let { return it }
-        val saved = runCatching { JSONArray(prefs.getString("players", "[]")) }.getOrElse { JSONArray() }
+        val saved = runCatching { JSONArray(prefs.getString("players", null) ?: "[]") }.getOrElse { JSONArray() }
         val fromSaved = (0 until saved.length()).mapNotNull { cleanName(saved.optString(it)) }
         // Older versions didn't keep a list: add anyone with a score
         val fromScores = all().sortedByDescending { it.time }.flatMap { if (it.duet) it.name.split(DUET_JOIN) else listOf(it.name) }
@@ -231,7 +304,7 @@ class History(context: Context) {
     @Synchronized
     fun all(): List<Played> {
         cached?.let { return it }
-        val arr = runCatching { JSONArray(prefs.getString("p", null) ?: prefs.getString("played", "[]")) }.getOrElse { JSONArray() }
+        val arr = runCatching { JSONArray(prefs.getString("p", null) ?: prefs.getString("played", null) ?: "[]") }.getOrElse { JSONArray() }
         val list = (0 until arr.length()).mapNotNull { i ->
             val r = arr.optJSONArray(i)
             val o = if (r == null) arr.optJSONObject(i) ?: return@mapNotNull null else null   // 3.10-3.11: objects

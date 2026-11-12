@@ -3,6 +3,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- Rare extra: emoji reactions floating up both sides, behind everything else -->
+    <com.karaoketv.ReactionsView
+        android:id="@+id/scReactions"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no" />
+
     <!-- Everything in one column, centred on the screen -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -127,4 +134,23 @@
             android:visibility="invisible" />
     </LinearLayout>
 
+
+    <!-- Rare extra: four judges, two each side, so the score stays in the middle -->
+    <LinearLayout
+        android:id="@+id/scJudgesLeft"
+        android:layout_width="200dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|center_vertical"
+        android:layout_marginStart="32dp"
+        android:orientation="vertical"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/scJudgesRight"
+        android:layout_width="200dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="32dp"
+        android:orientation="vertical"
+        android:visibility="gone" />
 </FrameLayout>

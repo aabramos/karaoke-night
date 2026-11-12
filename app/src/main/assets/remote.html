@@ -42,6 +42,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .q .rm{flex:none;min-width:44px;height:40px;border-radius:999px;border:1px solid var(--line);background:var(--card2);color:#fff;font-weight:800;font-size:14px;padding:0 12px}
 .q .rm.sure{background:#ff5a6e;border-color:#ff5a6e}
 .qhint{color:var(--dim);font-size:12px;text-align:center;padding:8px 4px 0}
+.qmore{display:block;width:100%;margin-top:8px;background:none;border:1px dashed var(--line);border-radius:12px;color:var(--cyan);font-weight:700;font-size:14px;padding:10px;min-height:44px}
 .q .t b{display:block}
 .q .t small{display:block;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .me{background:rgba(255,61,165,.12);border-radius:10px}
@@ -76,7 +77,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .pod.lead{animation:lead 1.2s ease-out}
 @keyframes lead{0%{transform:scale(.85)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
 .topnote{margin-top:8px;font-size:13px;color:var(--dim);text-align:center}
-.btn:focus-visible,.chip:focus-visible,.add:focus-visible,.rm:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
+.btn:focus-visible,.chip:focus-visible,.add:focus-visible,.rm:focus-visible,.qmore:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.now .mic,.pod.lead{animation:none}#toast{transition:none}.btn:active{transform:none}}
 .spin{display:inline-block;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
 </style>
@@ -84,10 +85,14 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 <body>
 <h1>🎤 KARAOKE <span>NIGHT</span></h1>
 
-<div class="card now" id="now"><div class="mic">🎤</div><div><b id="nowSinger">Waiting for the first singer…</b><small id="nowSong">Add a song below!</small></div></div>
+<div class="card now" id="now"><div class="mic">🎤</div><div><b id="nowSinger">Waiting for the first singer…</b><small id="nowSong">Pick a song below!</small></div></div>
 
 <h2 id="topTitle">🏆 TONIGHT'S TOP 3</h2>
 <div id="top"><div class="muted">Loading…</div></div>
+
+<!-- The queue before the search: guests check it (and remove their own songs) without scrolling past search results -->
+<h2>UP NEXT</h2>
+<div class="card" id="queue"><div class="muted">The queue is empty.</div></div>
 
 <h2>YOUR NAME</h2>
 <input id="name" maxlength="20" placeholder="Who's singing?" autocomplete="nickname" aria-label="Your name">
@@ -99,9 +104,6 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 <form class="row" id="sf"><input id="q" type="search" maxlength="80" placeholder="Song or artist…" enterkeyhint="search" aria-label="Search a song or artist"><button class="btn">Go</button></form>
 <div class="chips" id="chips"></div>
 <div id="results"></div>
-
-<h2>UP NEXT</h2>
-<div class="card" id="queue"><div class="muted">The queue is empty.</div></div>
 
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -254,14 +256,17 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
     mine = mine.filter(function(k){ return k !== key; }).concat([key]).slice(-30);
     try { localStorage.setItem('mine', JSON.stringify(mine)); } catch(e) {}
   }
-  var queueNow = [], sureKey = null, sureTimer = null;
+  var queueNow = [], sureKey = null, sureTimer = null, queueOpen = false;
+  var QUEUE_SHOWN = 5;                       // a long queue shows the next 5 (plus your own songs) until "Show all"
 
   // ✕ asks "Remove?" first; a second tap within a few seconds removes the song
   function renderQueue(){
     var q = $('queue'); q.textContent = '';
     if (!queueNow.length) { q.appendChild(el('div','muted','The queue is empty. Be the first! 🎤')); return; }
-    var me = nameEl.value.trim().toLowerCase(), anyMine = false;
+    var me = nameEl.value.trim().toLowerCase(), anyMine = false, hidden = 0;
     queueNow.forEach(function(it, i){
+      var own = typeof it.k === 'number' && mine.indexOf(it.k) >= 0;
+      if (!queueOpen && i >= QUEUE_SHOWN && !own && !(me && it.singer.toLowerCase() === me)) { hidden++; return; }
       var row = el('div','q' + (me && it.singer.toLowerCase() === me ? ' me' : ''));
       var n = el('div','n', String(i + 1)); n.style.background = color(it.singer);
       var t = el('div','t'); t.appendChild(el('b',null,it.singer)); t.appendChild(el('small',null,it.title));
@@ -276,6 +281,12 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
       }
       q.appendChild(row);
     });
+    if (hidden || queueOpen && queueNow.length > QUEUE_SHOWN) {
+      var more = el('button','qmore', queueOpen ? 'Show less' : 'Show all ' + queueNow.length + ' songs (' + hidden + ' more)');
+      more.type = 'button'; more.setAttribute('aria-expanded', queueOpen ? 'true' : 'false');
+      more.onclick = function(){ queueOpen = !queueOpen; renderQueue(); };
+      q.appendChild(more);
+    }
     if (anyMine) q.appendChild(el('div','qhint','Added a song by mistake? Tap ✕ next to it. Only songs from this phone can be removed.'));
   }
   function askRemove(key){

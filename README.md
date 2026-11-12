@@ -9,17 +9,20 @@ A karaoke app for the big screen, built for parties:
   search for that country and language. Guests' phones follow automatically
 - **Song queue** with singer names. Songs play one after another with a **"Next up: MARIA!"** countdown in between
 - **Guests add songs from their phones** by scanning the QR code on the TV, **without interrupting the current singer**
-- **Very quiet lobby music** while people choose songs; it fades out when a song starts and back in afterwards
+- **Quiet lobby music** while people choose songs; it fades out when a song starts and back in afterwards
 - **One volume for songs and sound effects**, separate from the TV volume, to balance the music against
   your mics: the 🎵 button in the lobby, ◀ ▶ during a song, or a slider on phones
-- **Lobby music** always plays very quietly in the background (it can be switched off, not turned up)
+- **Lobby music** has its own volume slider (quiet by default) and can be switched off
 - **Duets**: pick two singers for one song (on the TV or a phone); duets have their own ranking
 - **Players list**: everyone who has sung is one tap away on the TV and on guests' phones (typing a few
   letters finds anyone, even with dozens of players). Only the TV can remove a player (with a confirmation),
   which also removes their scores and achievements
 - **The judge**: drumroll, count-up, stars, a verdict, applause, and confetti + fanfare for 95+, plus
-  highlights like a new personal best
-- **Achievements**: 17 to collect and keep (85 / 90 / 95 points, Perfect 100, Champion, Hat-trick, Dream
+  highlights like a new personal best. Once in a while (about 1 great score in 8, 85+ only) there's a
+  surprise: four celebrity judges hold up their paddles (🐱 Whiskers, 🤖 RoboJudge, 👵 Grandma Rosa,
+  🦜 Captain Polly), an emoji crowd cheers from both sides, or both
+- **Achievements**: 25 to collect and keep (85 / 90 / 95 points, Perfect 100, Champion, Hat-trick, Best friends,
+  Social butterfly, Lucky 77, Tomato magnet, Stage fright, Encore, Dream
   team, Night owl, Legend…), plus **17 genres** to collect, unlocked the first time someone sings each one
   (🎸 Rock, 🍭 Pop, 🕺 Disco, 🧢 Hip-hop, 💜 Soul, 🤠 Country, 💃 Latin, 🤘 Metal, 🎭 Musicals, 🎬 Movies,
   🎻 Classical, 🎮 Games & anime, 🎺 Jazz, 🌴 Reggae, 🌸 K-pop & J-pop, 🇵🇹 Portuguese, 🇧🇷 Brazilian).
@@ -37,9 +40,10 @@ A karaoke app for the big screen, built for parties:
   finds another karaoke version of the same song for the same singer
 - Made for the TV, and also runs full screen on Android phones and tablets
 
-> The score is just for fun: it doesn't listen to the singer. Scores are always between 60 and 100;
-> most land in the 70s and 80s, 90+ is a treat and a perfect 100 is rare. Stopping a song early gives a
-> lower score; stopping in the first quarter gives none.
+> The score is just for fun: it doesn't listen to the singer. A song sung to the end (or into its
+> last 10%, usually a silent outro) scores between 65 and 100: most land in the 70s and 80s, 90+ is a
+> treat and a perfect 100 is rare. Stopping earlier scores 0 to 65, closer to 65 the further the singer
+> got; stopping in the first 10% (a wrong song, say) isn't scored.
 
 ---
 
@@ -71,7 +75,7 @@ That's it. The queue is saved, so if someone exits the app by accident, everythi
 | Lobby | QR card → OK | Big join code for guests' phones |
 | Lobby | 🌍 / flag button | Party country: every country, type a few letters to find one |
 | Lobby | 🏆 button | Hall of fame: tonight, all time, duets, 🏅 achievements (OK on a singer: all their achievements) |
-| Lobby | 🎵 button | Volume for songs and sound effects (◀ ▶), lobby music on/off |
+| Lobby | 🎵 button | Volume: songs and sound effects, lobby music (its own slider), lobby music on/off |
 | Lobby | 🕘 Played chip | The last 10 songs sung, to sing one again |
 | Lobby | ℹ️ button | About: version, author, project page |
 | Who's singing? | 👫 Duet / 🎲 / 🗑 / ‹ › | Two singers / surprise name / remove a player (asks first) / more names. Typing filters the names. BACK steps back |
@@ -99,8 +103,9 @@ is selected; typing filters the names). Phones can't remove players: only the TV
 Added a song by mistake? A **✕** appears next to every song that phone added while it's still waiting;
 tap it, then tap **Remove?** to confirm. A phone can only remove its own songs (each phone gets a random ID,
 and the TV only keeps a fingerprint of it), never someone else's or the one being sung.
-Their phones also show who's singing, the queue and **tonight's top 3** (each singer's best score and the
-song, plus the best duet), updated live. Their own spot is highlighted, and a message pops up when someone takes the lead.
+Their phones show, from the top: who's singing, **tonight's top 3** (each singer's best score and the song,
+plus the best duet), the queue (the next 5 plus their own songs; "Show all" for the rest), and then the
+song search, all updated live. Their own spot is highlighted, and a message pops up when someone takes the lead.
 
 - Phones must be on the **same Wi-Fi** as the Shield. Guest networks often block devices from seeing each
   other; if the page won't open, use the main network.
@@ -223,15 +228,16 @@ It appears in the Shield's app row as **Karaoke Night**.
 
 | What | Where |
 |---|---|
-| Score range (60-100) | `Scores.kt` → `Judge` |
+| Score range (65-100, early stops 0-65) | `Scores.kt` → `Judge` |
 | Quick picks | `Countries.kt`: `INTERNATIONAL_PICKS`, and `HAND` for a country's own picks (phones get the same ones) |
 | How generous the judge is | `Scores.kt`: `83 + 8 * rng.nextGaussian()`: raise 83 for higher scores, raise 8 for more spread |
 | Judge comments | `Scores.kt` → `lines` |
+| How often the judges / emoji crowd appear | `Scores.kt` → `Extras.CHANCE` (0.12) and `MIN_SCORE` (85) |
 | Score-screen highlights | `Scores.kt` → `Badges` |
 | Achievements (add, change, remove) | `Achievements.kt` → `Achievements.ALL` and `earnedBy` |
 | Genres and the artists/words that identify them | `Genres.kt` → `Genres.ALL` |
 | How many songs "🕘 Played" keeps | `Scores.kt` → `History.MAX` (10) |
-| Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops from end to start without a gap); its fixed level is `Audio.kt` → `LobbyMusic.LEVEL` |
+| Lobby music | Replace `res/raw/lobby.ogg` with any OGG file (it loops from end to start without a gap); its default and loudest levels are `Audio.kt` → `LobbyMusic.DEFAULT_VOLUME` / `MAX_LEVEL` |
 | Autostart delay | `MainActivity.kt` → `AUTOSTART_MS` (30 s) |
 | Surprise stage names | `MainActivity.kt` → `STAGE_NAMES` |
 | Fresh player every N songs | `MainActivity.kt` → `RECYCLE_PLAYER_AFTER` |
