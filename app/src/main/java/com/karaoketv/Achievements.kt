@@ -45,6 +45,25 @@ object Achievements {
         Achievement("regular", "🎙", "Regular", "Sing 10 songs"),
         Achievement("legend", "🏆", "Legend", "Sing 50 songs"),
         Achievement("nights", "🎉", "Party animal", "Sing at 3 parties"),
+        Achievement("infinity", "♾️", "Infinity Win", "Score 95+ in 5 songs"),
+        Achievement("sixseven", "🤲", "Six Seven!", "Score exactly 67 points"),
+        Achievement("stinky", "💩", "Stinky Poop", "Score under 10 points"),
+        Achievement("huh", "🤨", "Huh?!", "Skip at the very end"),
+        Achievement("c5", "👋", "Noticed", "Get 5 emojis from phones"),
+        Achievement("c10", "🙌", "Crowd pleaser", "Get 10 emojis from phones"),
+        Achievement("c20", "📣", "Fan club", "Get 20 emojis from phones"),
+        Achievement("c50", "🏟️", "Stadium star", "Get 50 emojis from phones"),
+        Achievement("lover", "💘", "Lover", "Get 30 😍 from phones"),
+        // Special dates (the party's date: 1 am still counts as the evening before, see nightOf)
+        Achievement("xmas", "🎄", "Christmas carol", "Sing on Dec 24 or 25"),
+        Achievement("halloween", "🎃", "Spooky singer", "Sing on Halloween"),
+        Achievement("nye", "🎆", "New Year's Eve", "Sing on December 31"),
+        Achievement("valentine", "💝", "Be my Valentine", "Sing on February 14"),
+        Achievement("carnival", "🎊", "Carnival", "Sing during Carnival"),
+        Achievement("patrick", "☘️", "St Patrick's", "Sing on March 17"),
+        Achievement("easter", "🐣", "Easter bunny", "Sing on Easter weekend"),
+        Achievement("musicday", "🎷", "Music Day", "Sing on June 21"),
+        Achievement("friday13", "🐈", "Friday the 13th", "Sing on a Friday the 13th"),
     )
     /** One per genre: the first time someone sings it (see [Genres]). */
     val GENRES = Genres.ALL.map { Achievement(genreId(it.id), it.icon, it.title, it.how) }
@@ -62,12 +81,13 @@ object Achievements {
      * [bestSoloBefore]: their best solo score so far, or null. [rank]: place among tonight's
      * scores of the same kind (0 = unknown). [soloSingersTonight]: different solo singers tonight.
      * [person]: whose achievements these are (for duets: which of the two). [stoppedEarly]: the
-     * song was stopped before the end.
+     * song was stopped before the end. [emojis], [hearts]: phone emojis this person has received
+     * in total (all of them, and 😍 only), counted as they arrive.
      */
     fun earnedBy(
         entry: Entry, mineBefore: List<Entry>, bestSoloBefore: Int?, songsAfter: Int, nightsAfter: Int,
         rank: Int, soloSingersTonight: Int, hour: Int, genres: List<String> = emptyList(),
-        person: String = entry.name, stoppedEarly: Boolean = false,
+        person: String = entry.name, stoppedEarly: Boolean = false, emojis: Int = 0, hearts: Int = 0,
     ): Set<String> {
         val ids = LinkedHashSet<String>()
         val s = entry.score
@@ -78,6 +98,9 @@ object Achievements {
         if (s >= 100) ids += "s100"
         if (s == 77) ids += "lucky"
         if (s < 40) ids += "tomato"
+        if (s < 10) ids += "stinky"
+        if (s == 67) ids += "sixseven"
+        if (s >= 95 && mineBefore.count { it.score >= 95 } + 1 >= 5) ids += "infinity"
         if (stoppedEarly) ids += "stagefright"
         if (!entry.duet && rank == 1 && soloSingersTonight >= 3) ids += "champ"
         if (!entry.duet && bestSoloBefore != null && s > bestSoloBefore) ids += "pb"
@@ -106,8 +129,60 @@ object Achievements {
         if (songsAfter >= 50) ids += "legend"
         if (nightsAfter >= 3) ids += "nights"
         genres.forEach { g -> if (Genres.get(g) != null) ids += genreId(g) }
+        ids += forEmojis(emojis, hearts)
+        ids += specialDays(nightOf(entry.time))
         return ids
     }
+
+    /** The emoji achievements for this many emojis received (and this many 😍). */
+    fun forEmojis(emojis: Int, hearts: Int): Set<String> {
+        val ids = LinkedHashSet<String>()
+        if (emojis >= 5) ids += "c5"
+        if (emojis >= 10) ids += "c10"
+        if (emojis >= 20) ids += "c20"
+        if (emojis >= 50) ids += "c50"
+        if (hearts >= 30) ids += "lover"
+        return ids
+    }
+
+    /**
+     * The special-date achievements for a party night (a night number from [nightOf], so a party
+     * that runs past midnight keeps its date). Carnival (Saturday to Tuesday) and Easter weekend
+     * move every year and are worked out from the date of Easter.
+     */
+    fun specialDays(night: Long): Set<String> {
+        val c = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+        c.timeInMillis = night * DAY_MS + DAY_MS / 2
+        val md = (c.get(java.util.Calendar.MONTH) + 1) * 100 + c.get(java.util.Calendar.DAY_OF_MONTH)
+        val ids = LinkedHashSet<String>()
+        when (md) {
+            1224, 1225 -> ids += "xmas"
+            1031 -> ids += "halloween"
+            1231 -> ids += "nye"
+            214 -> ids += "valentine"
+            317 -> ids += "patrick"
+            621 -> ids += "musicday"
+        }
+        if (md % 100 == 13 && c.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.FRIDAY) ids += "friday13"
+        val easter = easterNight(c.get(java.util.Calendar.YEAR))
+        if (night in easter - 50..easter - 47) ids += "carnival"     // Saturday to Shrove Tuesday
+        if (night in easter - 1..easter) ids += "easter"             // Saturday and Sunday
+        return ids
+    }
+
+    /** Easter Sunday of [year] as a day number (the anonymous Gregorian algorithm). */
+    fun easterNight(year: Int): Long {
+        val a = year % 19; val b = year / 100; val c = year % 100
+        val d = b / 4; val e = b % 4; val f = (b + 8) / 25; val g = (b - f + 1) / 3
+        val h = (19 * a + b - d - g + 15) % 30; val i = c / 4; val k = c % 4
+        val l = (32 + 2 * e + 2 * i - h - k) % 7; val m = (a + 11 * h + 22 * l) / 451
+        val month = (h + l - 7 * m + 114) / 31; val day = (h + l - 7 * m + 114) % 31 + 1
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+        cal.clear(); cal.set(year, month - 1, day)
+        return Math.floorDiv(cal.timeInMillis, DAY_MS)
+    }
+
+    private const val DAY_MS = 24 * 3600_000L
 
     /** The people in an entry: one singer, or both halves of a duet. */
     fun people(entry: Entry): List<String> = if (entry.duet) entry.name.split(DUET_JOIN) else listOf(entry.name)
@@ -135,7 +210,7 @@ class AchievementBook(context: Context) {
     private val prefs = context.getSharedPreferences("achievements", Context.MODE_PRIVATE)
 
     private class Rec(var name: String, var songs: Int, var best: Int, var lastNight: Long, var nights: Int,
-                      val unlocked: LinkedHashMap<String, Long>)
+                      val unlocked: LinkedHashMap<String, Long>, var emojis: Int = 0, var hearts: Int = 0)
 
     private var cache: LinkedHashMap<String, Rec>? = null
 
@@ -149,7 +224,7 @@ class AchievementBook(context: Context) {
             val name = cleanName(r.optString(0)) ?: continue
             val u = LinkedHashMap<String, Long>()
             r.optJSONObject(5)?.let { uo -> uo.keys().forEach { id -> if (Achievements.get(id) != null) u[id] = uo.optLong(id) } }
-            map[name.lowercase()] = Rec(name, r.optInt(1), r.optInt(2, -1), r.optLong(3), r.optInt(4), u)
+            map[name.lowercase()] = Rec(name, r.optInt(1), r.optInt(2, -1), r.optLong(3), r.optInt(4), u, r.optInt(6), r.optInt(7))
         }
         // 3.11 kept one object per singer, with times in milliseconds
         if (rows.length() == 0) runCatching {
@@ -172,10 +247,56 @@ class AchievementBook(context: Context) {
         val rows = JSONArray()
         map.values.forEach { r ->
             val u = JSONObject(); r.unlocked.forEach { (id, night) -> u.put(id, night) }
-            rows.put(JSONArray().put(r.name).put(r.songs).put(r.best).put(r.lastNight).put(r.nights).put(u))
+            rows.put(JSONArray().put(r.name).put(r.songs).put(r.best).put(r.lastNight).put(r.nights).put(u).put(r.emojis).put(r.hearts))
         }
         prefs.edit().putString("b", rows.toString()).remove("book").apply()
+        dirty = false
     }
+
+    /** Emojis counted since the last save (saved after each song, not on every emoji). */
+    private var dirty = false
+
+    /**
+     * A phone sent [emoji] to [singer] (a duet counts for both). Only counted here; the emoji
+     * achievements are given at the end of the song (see [record] and [unlockNow]).
+     */
+    @Synchronized
+    fun cheered(singer: String?, emoji: String) {
+        if (singer.isNullOrBlank()) return
+        for (person in singer.split(DUET_JOIN)) {
+            val key = person.lowercase()
+            if (key !in recs() && recs().size >= MAX * 2) continue
+            val r = recs().getOrPut(key) { Rec(person, 0, -1, Long.MIN_VALUE, 0, LinkedHashMap()) }
+            if (r.emojis < CAP) r.emojis++
+            if (emoji == HEART && r.hearts < CAP) r.hearts++
+            dirty = true
+        }
+    }
+
+    /**
+     * For a song that ended without a score (skipped): the emoji achievements the singer(s) have
+     * now, plus [extra] (e.g. "huh"). Returns what's new, like [record].
+     */
+    @Synchronized
+    fun unlockNow(singer: String, extra: Set<String> = emptySet()): List<Pair<String, Achievement>> {
+        val out = ArrayList<Pair<String, Achievement>>()
+        val night = Achievements.nightOf(System.currentTimeMillis())
+        for (person in singer.split(DUET_JOIN)) {
+            val r = recs().getOrPut(person.lowercase()) { Rec(person, 0, -1, Long.MIN_VALUE, 0, LinkedHashMap()) }
+            (Achievements.forEmojis(r.emojis, r.hearts) + extra).forEach { id ->
+                if (id !in r.unlocked) {
+                    r.unlocked[id] = night
+                    Achievements.get(id)?.let { out += person to it }
+                }
+            }
+        }
+        if (out.isNotEmpty() || dirty) save()
+        return out
+    }
+
+    /** Saves counted emojis (when the app goes to the background). */
+    @Synchronized
+    fun flush() { if (dirty) save() }
 
     private fun Rec.toRecord() = SingerRecord(name, songs, best.takeIf { it >= 0 }, LinkedHashMap(unlocked), lastNight)
 
@@ -199,7 +320,7 @@ class AchievementBook(context: Context) {
             if (r.lastNight != night) { r.lastNight = night; r.nights++ }
             val mine = before.filter { Achievements.involves(it, person) }
             val ids = Achievements.earnedBy(entry, mine, r.best.takeIf { it >= 0 }, r.songs, r.nights, rank, soloTonight, hour,
-                genres, person, stoppedEarly)
+                genres, person, stoppedEarly, r.emojis, r.hearts)
             if (!entry.duet && entry.score > r.best) r.best = entry.score
             ids.forEach { id ->
                 if (id !in r.unlocked) {
@@ -246,13 +367,13 @@ class AchievementBook(context: Context) {
     }
 
     /**
-     * Once per new batch of achievements (genres in 3.16, the fun ones in 3.17): awards them for
+     * Once per new batch of achievements (genres in 3.16, the fun ones in 3.17, more in 3.23): awards them for
      * the scores already saved, dated to the party they were sung at. Counts that the saved
      * scores can't tell (songs ever sung, parties, personal bests, ranks) are left out here.
      */
     @Synchronized
     fun backfillNew(entries: List<Entry>) {
-        if (prefs.getBoolean("more1", false)) return
+        if (prefs.getBoolean(BATCH, false)) return
         var changed = false
         val done = ArrayList<Entry>()
         val cal = java.util.Calendar.getInstance()
@@ -268,10 +389,16 @@ class AchievementBook(context: Context) {
             done += e
         }
         if (changed) save()
-        prefs.edit().putBoolean("more1", true).apply()
+        prefs.edit().putBoolean(BATCH, true).apply()
     }
 
     companion object {
         const val MAX = Leaderboard.MAX_PLAYERS
+        /** Counts stop here: plenty for any achievement, and the saved numbers stay short. */
+        const val CAP = 9999
+        /** The emoji that counts for "Lover". */
+        val HEART = REACTIONS[2]
+        /** Bumped with each new batch of achievements, so [backfillNew] runs again once. */
+        const val BATCH = "more3"
     }
 }

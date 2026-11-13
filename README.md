@@ -8,7 +8,7 @@ Party karaoke for Android TV (built for the NVIDIA Shield). Also runs on Android
 - Song queue with a "Next up" countdown between singers
 - Guests add songs from their phones by scanning a QR code, without interrupting the singer
 - Solo and duet modes, a saved players list, and a fun score (it doesn't listen to the singer)
-- Hall of fame (tonight, all time, duets), 42 achievements, and a 🌙 "Close the night" awards show
+- Hall of fame (solo and duets, tonight and all time), 43 achievements (scores, emojis from phones, special dates such as Christmas, Carnival and Halloween), 18 genres to collect, and a 🌙 "Close the night" awards show
 - 🎲 Surprise me: a random song everyone knows
 - Party country: quick picks and search ranking for any country
 - Cheers from the phones that float up the edge of the TV
@@ -34,7 +34,7 @@ The queue is saved. If the app closes, everything is still there when it reopens
 | Lobby | 🎙 or the remote's search button | Voice search |
 | Lobby | QR card, then OK | Big code for phones |
 | Lobby | 🌍 | Party country |
-| Lobby | 🏆 | Hall of fame and achievements |
+| Lobby | 🏆 | Hall of fame and achievements. ▼ scrolls a list, OK on a name shows their achievements (▲▼ scroll) |
 | Lobby | 🌙 | Close the night: awards show (OK next, ◀ back, BACK leave) |
 | Lobby | 🎵 | Volume sliders, lobby music on/off |
 | Lobby | ℹ️ | About |

@@ -157,7 +157,8 @@ public final class PartyServer {
             String ip = addr.getHostAddress();
 
             long deadline = System.currentTimeMillis() + REQUEST_DEADLINE_MS;
-            InputStream in = s.getInputStream();
+            // Buffered: the request head is read a byte at a time, and dozens of phones poll every few seconds
+            InputStream in = new java.io.BufferedInputStream(s.getInputStream(), 1024);
             OutputStream out = s.getOutputStream();
             String head = readHead(in, deadline);
             if (head == null) { send(out, 400, "text/plain", "Bad request"); return; }
@@ -272,6 +273,10 @@ public final class PartyServer {
                 send(out, 404, "text/plain", "Not found");
             }
         } catch (IOException ignored) {
+        } catch (RuntimeException e) {
+            // A bug in one request must never take the TV app down (this runs on a worker thread)
+            try { send(s.getOutputStream(), 500, "application/json", "{\"error\":\"Something went wrong on the TV. Try again.\"}"); }
+            catch (IOException | RuntimeException ignored) { }
         } finally {
             closeQuietly(s);
         }
@@ -390,6 +395,8 @@ public final class PartyServer {
             case 404: return "Not Found";
             case 413: return "Payload Too Large";
             case 429: return "Too Many Requests";
+            case 500: return "Internal Server Error";
+            case 502: return "Bad Gateway";
             case 503: return "Service Unavailable";
             default: return "Error";
         }

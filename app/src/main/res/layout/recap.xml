@@ -8,7 +8,6 @@
     android:clickable="true">
 
     <com.karaoketv.StageView
-        android:id="@+id/recapStage"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 

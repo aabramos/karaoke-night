@@ -334,6 +334,7 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
       .then(function(r){
         if (r && typeof r.key === 'number') rememberMine(r.key);
         btn.textContent = '✓'; btn.classList.add('done'); btn.setAttribute('aria-label', 'Added');
+        if (r && typeof r.key === 'number') addedBtns[r.key] = { btn: btn, title: v.title, seen: false, at: Date.now() };
         var who = singer + (partner ? ' & ' + partner : '');
         $('partner').value = '';   // the next song is a solo unless a partner is typed again
         refresh().then(function(){
@@ -365,10 +366,26 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
     try { localStorage.setItem('mine', JSON.stringify(mine)); } catch(e) {}
   }
   var queueNow = [], sureKey = null, sureTimer = null, queueOpen = false;
+  // ✓ buttons of songs this phone just added, by queue key. Once the song leaves the queue
+  // (removed by mistake, or sung), its button turns back into + so it can be added again.
+  var addedBtns = {};
+  function freeAdded(gone){
+    Object.keys(addedBtns).forEach(function(k){
+      var a = addedBtns[k], key = +k, inQueue = false;
+      for (var i = 0; i < queueNow.length; i++) if (queueNow[i].k === key) { inQueue = true; break; }
+      if (inQueue) { a.seen = true; return; }
+      // Not in the list: free it once it had been there, if it was removed here, or if it never showed up
+      if (!(a.seen || key === gone || Date.now() - a.at > 15000)) return;
+      a.btn.textContent = '+'; a.btn.classList.remove('done'); a.btn.disabled = false;
+      a.btn.setAttribute('aria-label', 'Add ' + a.title + ' to the queue');
+      delete addedBtns[k];
+    });
+  }
   var QUEUE_SHOWN = 5;                       // a long queue shows the next 5 (plus your own songs) until "Show all"
 
   // ✕ asks "Remove?" first; a second tap within a few seconds removes the song
   function renderQueue(){
+    freeAdded(null);
     var q = $('queue'); q.textContent = '';
     if (!queueNow.length) { q.appendChild(el('div','muted','The queue is empty. Be the first! 🎤')); return; }
     var me = nameEl.value.trim().toLowerCase(), anyMine = false, hidden = 0;
@@ -410,7 +427,7 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
         toast('🗑 Removed “' + it.title.slice(0, 40) + '”');
         mine = mine.filter(function(k){ return k !== it.k; });
         try { localStorage.setItem('mine', JSON.stringify(mine)); } catch(e) {}
-        queueNow = queueNow.filter(function(x){ return x.k !== it.k; }); renderQueue();
+        queueNow = queueNow.filter(function(x){ return x.k !== it.k; }); freeAdded(it.k); renderQueue();
         refresh();
       })
       .catch(function(e){ toast(e.message); renderQueue(); });

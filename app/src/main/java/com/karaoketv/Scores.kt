@@ -75,8 +75,8 @@ data class JudgeCard(val face: String, val name: String, val points: Double, val
 object Extras {
     enum class Kind { JUDGES, EMOJIS }
     const val MIN_SCORE = 85
-    /** About one great score in eight gets something. */
-    const val CHANCE = 0.12
+    /** One great score in five gets something. */
+    const val CHANCE = 0.20
 
     fun pick(score: Int, rng: Random = Random()): Set<Kind> {
         if (score < MIN_SCORE || rng.nextDouble() >= CHANCE) return emptySet()

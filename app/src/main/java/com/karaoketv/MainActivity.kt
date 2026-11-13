@@ -323,10 +323,14 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
         click(R.id.pickerPrev) { pickerPage--; renderPickerNames(); findViewById<View>(R.id.pickerPrev).let { if (it.isEnabled) it.requestFocus() else findViewById<View>(R.id.pickerNext).requestFocus() } }
         click(R.id.pickerNext) { pickerPage++; renderPickerNames(); findViewById<View>(R.id.pickerNext).let { if (it.isEnabled) it.requestFocus() else findViewById<View>(R.id.pickerPrev).requestFocus() } }
-        for ((tab, view) in listOf(R.id.tabTonight to BoardView.TONIGHT, R.id.tabAll to BoardView.ALL,
-                R.id.tabDuets to BoardView.DUETS, R.id.tabAch to BoardView.ACHIEVEMENTS)) {
-            click(tab) { renderBoard(view) }
-            findViewById<View>(tab).setOnFocusChangeListener { _, f -> if (f) renderBoard(view) }
+        for (view in BoardView.values()) {
+            click(view.tab) { renderBoard(view) }
+            findViewById<View>(view.tab).setOnFocusChangeListener { _, f ->
+                if (!f) return@setOnFocusChangeListener
+                renderBoard(view)
+                // Back on the tabs: show the top of the list (and the podium) again
+                listOf(R.id.boardScroll, R.id.boardAchScroll).forEach { findViewById<ScrollView>(it).smoothScrollTo(0, 0) }
+            }
         }
         // Typing a name filters the buttons: with dozens of players, yours is a few letters away
         findViewById<EditText>(R.id.pickerInput).addTextChangedListener(object : android.text.TextWatcher {
@@ -478,6 +482,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     override fun onStop() {
         stopListening()
         cheers.save()
+        achievements.flush()
         ui.removeCallbacks(recapAuto)
         sfx.stop(sfx.drumroll)
         QueueStore.save(prefs, queue)
@@ -572,7 +577,16 @@ class MainActivity : Activity(), PartyBackend.Listener {
         // Overlays first, topmost first (a confirmation sheet can sit on top of the picker)
         if (sheetLayer.isShown) { if (back) { if (first) cancelSheet(); return true }; return super.dispatchKeyEvent(e) }
         if (pickerLayer.isShown) { if (back) { if (first) pickerBack(); return true }; return super.dispatchKeyEvent(e) }
-        if (achLayer.isShown) { if (back) { if (first) hideSinger(); return true }; return super.dispatchKeyEvent(e) }
+        if (achLayer.isShown) {
+            if (back) { if (first) hideSinger(); return true }
+            // ▲▼ scroll the list; the focus stays on Back
+            if (code == KeyEvent.KEYCODE_DPAD_DOWN || code == KeyEvent.KEYCODE_DPAD_UP) {
+                if (e.action == KeyEvent.ACTION_DOWN)
+                    findViewById<ScrollView>(R.id.achScroll).smoothScrollBy(0, px(if (code == KeyEvent.KEYCODE_DPAD_DOWN) 120 else -120))
+                return true
+            }
+            return super.dispatchKeyEvent(e)
+        }
         if (boardLayer.isShown) { if (back) { if (first) hideBoard(); return true }; return super.dispatchKeyEvent(e) }
         if (qrLayer.isShown) { if (back) { if (first) hideBigQr(); return true }; return super.dispatchKeyEvent(e) }
         if (countryLayer.isShown) { if (back) { if (first) hideCountries(); return true }; return super.dispatchKeyEvent(e) }
@@ -1387,7 +1401,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val opts = ArrayList<Pair<String, () -> Unit>>()
         opts += "▶ Keep singing" to { player?.play(); Unit }
         if (f >= 0.25) opts += "🏁 Score me!" to { showScore(f) }
-        opts += "⏭ Skip" to { afterSong() }
+        opts += "⏭ Skip" to { skipSong(f) }
         opts += "🏠 Lobby" to { goLobby() }
         showSheet(
             "Done singing?",
@@ -1396,6 +1410,20 @@ class MainActivity : Activity(), PartyBackend.Listener {
             opts,
             onCancel = { player?.play() }
         )
+    }
+
+    /**
+     * Skipped from the menu: no score, but emoji achievements still count, and skipping right at
+     * the end (the last 10%, or during the "Big finish") earns 🤨 Huh?!
+     */
+    private fun skipSong(fraction: Double) {
+        val item = queue.current
+        if (item != null) {
+            val extra = if (finale || fraction >= HUH_FRACTION) setOf("huh") else emptySet()
+            val got = runCatching { achievements.unlockNow(item.singer, extra) }.getOrDefault(emptyList())
+            if (got.isNotEmpty()) toast(got.take(2).joinToString("  ·  ") { (who, a) -> "🏅 $who unlocked ${a.icon} ${a.title}" })
+        }
+        afterSong()
     }
 
     // ---------- queue panel (during a song) ----------
@@ -2019,6 +2047,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val emoji = REACTIONS.getOrNull(index) ?: return
         if (owner in votes || votes.size < MAX_VOTES) votes[owner] = REACTION_VOTES[index]
         if (REACTION_VOTES[index] >= 0) cheers.add(queue.current?.singer)   // 😴 and 🍅 aren't cheers
+        achievements.cheered(queue.current?.singer, emoji)                   // every emoji counts for the emoji achievements
         stageReactions.cheer(emoji)
     }
 
@@ -2342,32 +2371,37 @@ class MainActivity : Activity(), PartyBackend.Listener {
         restoreFocus()
     }
 
-    private enum class BoardView { TONIGHT, ALL, DUETS, ACHIEVEMENTS }
+    /** The hall of fame's tabs: four rankings (solo and duets, tonight and all time) and the achievements. */
+    private enum class BoardView(val tab: Int, val empty: String) {
+        TONIGHT(R.id.tabTonight, "No solo scores tonight yet. Grab a mic! 🎤"),
+        ALL(R.id.tabAll, "No solo scores yet. Grab a mic! 🎤"),
+        DUETS_TONIGHT(R.id.tabDuetsTonight, "No duets tonight yet. Grab a partner! 👫"),
+        DUETS_ALL(R.id.tabDuetsAll, "No duets yet. Grab a partner! 👫"),
+        ACHIEVEMENTS(R.id.tabAch, "No achievements yet. Sing a song to earn your first! 🎤"),
+    }
     private var boardShows: BoardView? = null
 
     private fun renderBoard(view: BoardView) {
         if (boardShows == view && boardLayer.isShown && findViewById<LinearLayout>(R.id.boardRows).childCount > 0) return
         boardShows = view
-        findViewById<View>(R.id.tabTonight).isSelected = view == BoardView.TONIGHT
-        findViewById<View>(R.id.tabAll).isSelected = view == BoardView.ALL
-        findViewById<View>(R.id.tabDuets).isSelected = view == BoardView.DUETS
-        findViewById<View>(R.id.tabAch).isSelected = view == BoardView.ACHIEVEMENTS
-        val achScroll = findViewById<View>(R.id.boardAchScroll)
+        BoardView.values().forEach { findViewById<View>(it.tab).isSelected = it == view }
         val showAch = view == BoardView.ACHIEVEMENTS
-        achScroll.visibility = if (showAch) View.VISIBLE else View.GONE
-        listOf(R.id.podium, R.id.boardRows).forEach { findViewById<View>(it).visibility = if (showAch) View.GONE else View.VISIBLE }
+        findViewById<View>(R.id.boardAchScroll).visibility = if (showAch) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.boardScroll).visibility = if (showAch) View.GONE else View.VISIBLE
+        findViewById<TextView>(R.id.boardEmpty).text = view.empty
         if (showAch) { renderAchievementList(); return }
         findViewById<LinearLayout>(R.id.boardAchRows).removeAllViews()
-        findViewById<TextView>(R.id.boardEmpty).text = "No scores yet. Grab a mic! 🎤"
         val entries = when (view) {
             BoardView.TONIGHT -> board.tonight()
             BoardView.ALL -> board.allTime()
-            // Duets: tonight's if there are any, otherwise the best of all time
-            BoardView.DUETS -> board.tonight(duet = true).ifEmpty { board.allTime(duet = true) }
+            BoardView.DUETS_TONIGHT -> board.tonight(duet = true)
+            BoardView.DUETS_ALL -> board.allTime(duet = true)
             BoardView.ACHIEVEMENTS -> emptyList()
         }
-        val list = board.top(entries, 8)   // top 8 fits any screen
+        val list = board.top(entries, BOARD_ROWS)
         findViewById<View>(R.id.boardEmpty).visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.boardScroll).visibility = if (list.isEmpty()) View.GONE else View.VISIBLE
+        boardHint(if (list.size > 5) "${list.size} scores  ·  ${if (isTouch) "Swipe up" else "Press ▼"} to see them all" else "")
 
         // Podium: 2nd, 1st, 3rd
         val podium = findViewById<LinearLayout>(R.id.podium)
@@ -2382,12 +2416,18 @@ class MainActivity : Activity(), PartyBackend.Listener {
         rows.removeAllViews()
         val medals = arrayOf("🥇", "🥈", "🥉")
         list.forEachIndexed { j, e ->
+            // Each row takes the focus, so ▼ walks down the list and the list scrolls with it
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(px(14), px(2), px(14), px(2))
-                setBackgroundColor(if (j % 2 == 0) 0x26FFFFFF else 0x10FFFFFF)
+                setPadding(px(14), px(4), px(14), px(4))
+                background = boardRowBg(j % 2 == 0)
+                isFocusable = !isTouch
+                nextFocusUpId = if (j == 0) view.tab else View.NO_ID
+                contentDescription = "${medals.getOrNull(j) ?: "${j + 1}."} ${e.name}, ${e.score} points, ${shortTitle(e.song)}"
             }
+            row.id = View.generateViewId()
+            row.nextFocusLeftId = row.id; row.nextFocusRightId = row.id
             row.addView(label(medals.getOrNull(j) ?: "${j + 1}.", 15f, R.color.text_dim), LinearLayout.LayoutParams(px(40), ViewGroup.LayoutParams.WRAP_CONTENT))
             row.addView(TextView(this).apply { avatar(e.name); gravity = Gravity.CENTER; setTextColor(0xFF0B0614.toInt()); textSize = 12f },
                 LinearLayout.LayoutParams(px(24), px(24)))
@@ -2396,8 +2436,22 @@ class MainActivity : Activity(), PartyBackend.Listener {
             row.addView(label(shortTitle(e.song), 13f, R.color.text_dim), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             row.addView(label(e.score.toString(), 17f, R.color.gold, bold = true).apply { gravity = Gravity.END },
                 LinearLayout.LayoutParams(px(60), ViewGroup.LayoutParams.WRAP_CONTENT))
-            rows.addView(row)
+            rows.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = px(2) })
         }
+    }
+
+    private fun boardHint(text: String) {
+        findViewById<TextView>(R.id.boardHint).apply { this.text = text; visibility = if (text.isEmpty()) View.INVISIBLE else View.VISIBLE }
+    }
+
+    /** A ranking row: striped, and outlined when the remote is on it. */
+    private fun boardRowBg(even: Boolean) = android.graphics.drawable.StateListDrawable().apply {
+        addState(intArrayOf(android.R.attr.state_focused), android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = px(10).toFloat(); setColor(0xFF3A2466.toInt()); setStroke(px(2), getColor(R.color.neon_pink))
+        })
+        addState(intArrayOf(), android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = px(10).toFloat(); setColor(if (even) 0x26FFFFFF else 0x10FFFFFF)
+        })
     }
 
     // ---- achievements: a list of singers, OK on one opens everything they have (and haven't) ----
@@ -2413,7 +2467,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
             visibility = if (singers.isEmpty()) View.VISIBLE else View.GONE
         }
         findViewById<View>(R.id.boardAchScroll).visibility = if (singers.isEmpty()) View.GONE else View.VISIBLE
-        singers.take(100).forEach { r ->
+        boardHint(if (singers.size > 6) "${singers.size} singers  ·  ${if (isTouch) "Swipe up" else "Press ▼"} to see them all  ·  ${if (isTouch) "Tap" else "OK"} on a name for their achievements"
+            else if (singers.isNotEmpty()) "${if (isTouch) "Tap" else "OK"} on a name for their achievements" else "")
+        singers.take(100).forEachIndexed { j, r ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -2425,6 +2481,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 val sung = Achievements.GENRES.count { it.id in r.unlocked }
                 contentDescription = "${r.name}: $main of $total achievements, $sung of $genres genres. Press to see them all."
                 setOnClickListener { showSinger(r.name) }
+                if (j == 0) nextFocusUpId = R.id.tabAch
             }
             val main = Achievements.MAIN.filter { it.id in r.unlocked }
             val sung = Achievements.GENRES.filter { it.id in r.unlocked }
@@ -2452,7 +2509,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         findViewById<TextView>(R.id.achAvatar).avatar(r.name)
         findViewById<TextView>(R.id.achTitle).text = "🏅 ${r.name.uppercase()}"
         findViewById<TextView>(R.id.achSub).text =
-            "$main of $total achievements  ·  $sung of ${Achievements.GENRES.size} genres  ·  ${r.songs} song${if (r.songs == 1) "" else "s"} sung"
+            "$main of $total achievements  ·  $sung of ${Achievements.GENRES.size} genres  ·  ${r.songs} song${if (r.songs == 1) "" else "s"} sung" +
+                "  ·  ${if (isTouch) "swipe" else "▲▼"} to scroll"
         val grid = findViewById<LinearLayout>(R.id.achGrid)
         grid.removeAllViews()
         // Unlocked first (oldest first), then the ones still to get; 5 a row so all fit on screen
@@ -2494,6 +2552,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             repeat(GENRES_PER_ROW - chunk.size) { row.addView(View(this), LinearLayout.LayoutParams(0, px(28), 1f).apply { setMargins(px(3), 0, px(3), 0) }) }
             chips.addView(row)
         }
+        findViewById<ScrollView>(R.id.achScroll).scrollTo(0, 0)
         achLayer.visibility = View.VISIBLE
         popIn(achLayer)
         lockFocus()
@@ -3034,6 +3093,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
         const val RECAP_REVEAL_MS = 1500L
         /** Genre chips per row on a singer's achievements (two rows for all 17). */
         const val GENRES_PER_ROW = 9
+        /** Rows in each hall of fame ranking (it scrolls). */
+        const val BOARD_ROWS = 50
+        /** Skipping after this much of the song earns "Huh?!". */
+        const val HUH_FRACTION = 0.9
         const val PROJECT_URL = "https://github.com/aabramos/karaoke-night/"
         val STAGE_NAMES = listOf(
             "Disco Diva", "Rock Legend", "Mystery Voice", "Mic Master", "Golden Voice", "Pop Idol",

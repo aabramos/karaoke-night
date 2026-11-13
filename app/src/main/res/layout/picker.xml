@@ -136,7 +136,6 @@
 
         <!-- Player tools: random stage name, a new player (also filters the names), remove players -->
         <LinearLayout
-            android:id="@+id/pickerTools"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"

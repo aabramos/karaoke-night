@@ -8,8 +8,10 @@
 
     <LinearLayout
         android:layout_width="800dp"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:layout_gravity="center"
+        android:layout_marginTop="14dp"
+        android:layout_marginBottom="14dp"
         android:background="@drawable/panel_bg"
         android:gravity="center_horizontal"
         android:orientation="vertical"
@@ -54,26 +56,45 @@
             android:textColor="@color/text_dim"
             android:textSize="13sp" />
 
-        <LinearLayout
-            android:id="@+id/achGrid"
+        <!-- Everything scrolls: ▲▼ on the remote (the focus stays on Back), or a swipe -->
+        <ScrollView
+            android:id="@+id/achScroll"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="vertical" />
-
-        <TextView
-            style="@style/Label"
-            android:layout_gravity="start"
+            android:layout_height="0dp"
             android:layout_marginTop="8dp"
-            android:layout_marginStart="4dp"
-            android:text="🎼 GENRES SUNG" />
+            android:layout_weight="1"
+            android:fadingEdgeLength="24dp"
+            android:requiresFadingEdge="vertical"
+            android:scrollbarThumbVertical="@color/text_dim"
+            android:scrollbarSize="3dp"
+            android:fadeScrollbars="false">
 
-        <LinearLayout
-            android:id="@+id/achGenres"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:orientation="vertical" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:id="@+id/achGrid"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    style="@style/Label"
+                    android:layout_gravity="start"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginStart="4dp"
+                    android:text="🎼 GENRES SUNG" />
+
+                <LinearLayout
+                    android:id="@+id/achGenres"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:orientation="vertical" />
+            </LinearLayout>
+        </ScrollView>
 
         <TextView
             android:id="@+id/achClose"
