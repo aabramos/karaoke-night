@@ -64,7 +64,7 @@ private val TITLE_NOISE = Regex(
     """\s*[(\[【][^)\]】]*\b(karaoke|lyrics?|instrumental|version|backing track|sing ?along|with vocals|hd|4k)\b[^)\]】]*[)\]】]""",
     RegexOption.IGNORE_CASE)
 private val TITLE_SEPARATOR = Regex("""\s+[|｜]\s+""")
-private val TITLE_TAIL = Regex("""\s*[-–—:]\s*(karaoke|instrumental|lyrics?)\b.*$""", RegexOption.IGNORE_CASE)
+private val TITLE_TAIL = Regex("""(\s*[-–—:]\s*(karaoke|instrumental|lyrics?)\b.*$)|(\s+(karaoke|instrumental)(\s+version)?\s*$)""", RegexOption.IGNORE_CASE)
 private val TITLE_QUALITY = Regex("""\s+(HD|HQ|4K)\s*$""", RegexOption.IGNORE_CASE)
 private val TITLE_HEAD = Regex("""^\s*(karaoke|\[karaoke])\s*[-–—:]\s*""", RegexOption.IGNORE_CASE)
 

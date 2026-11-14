@@ -15,7 +15,7 @@ Party karaoke for Android TV (built for the NVIDIA Shield). Also runs on Android
 - Party country: quick picks and search ranking for any country
 - Cheers from the phones that float up the edge of the TV, and a secret hype bar on the left edge of the TV (no label until it fills; it holds while the room cheers, drifts back slowly once it goes quiet, and pauses with the song; one phone cheering steadily fills it in about a minute and a half, a bigger room sooner): a room that keeps cheering fills it ("🔥 HYPE" appears, +3 points and a 🔥 on the score), a room that keeps booing empties it (-3 and a 🍅)
 - Party themes: on Christmas (24 and 25 Dec), Halloween and Carnival the stage colours and confetti dress up (snow at Christmas)
-- Quick, light transitions: pop-ups and lists slide into place, buttons grow when the remote lands on them, new songs slide into the queue (TV and phones). On the TV they only move things (no full-screen fades), so they stay cheap on the Shield, and they switch off with the system's animations
+- Quick, light transitions: pop-ups and lists slide into place, buttons squish when pressed, new songs slide into the queue (TV and phones). On the TV they only move things (no full-screen fades), so they stay cheap on the Shield, and they switch off with the system's animations
 - A clock in the lobby, next to ⚙️, so everyone can keep an eye on the time
 - Cozy slow jazz lobby music between songs (piano, upright bass and brushed drums), and three volume sliders: songs, sound effects, lobby music (10% by default)
 - No YouTube API key needed (an optional key makes search more reliable)

@@ -56,21 +56,13 @@
             android:textColor="@color/text_dim"
             android:textSize="13sp" />
 
-        <!-- Personal stats: best score, favourite song, parties in a row -->
-        <TextView
+        <!-- Personal stats as a row of tiles: best score, favourite song, songs, parties, in a row (built in code) -->
+        <LinearLayout
             android:id="@+id/achStats"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:background="@drawable/card_bg"
-            android:gravity="center"
-            android:lineSpacingMultiplier="1.15"
-            android:paddingStart="12dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="6dp"
-            android:textColor="@color/text_main"
-            android:textSize="14sp" />
+            android:orientation="horizontal" />
 
         <!-- Everything scrolls: ▲▼ on the remote (the focus stays on Back), or a swipe -->
         <ScrollView

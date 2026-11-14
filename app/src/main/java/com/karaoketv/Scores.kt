@@ -303,7 +303,7 @@ object Extras {
                 robot >= 8.5 -> listOf("PITCH 97% HUMAN", "BEEP BOOP. APPROVED.", "EMOTION DETECTED")
                 else -> listOf("ACCEPTABLE OUTPUT", "BEEP. OK. BEEP.", "RECALIBRATING EARS…")
             })),
-            JudgeCard("👵", "GRANDMA ROSA", gran, pick(when {
+            JudgeCard("👵", "GRANDMA", gran, pick(when {
                 gran >= 9.5 -> listOf("I cried, darling!", "Better than Sinatra!", "Marry this voice!")
                 gran >= 8.5 -> listOf("Lovely, dear!", "So proud of you!", "That's my favourite!")
                 else -> listOf("Have a cookie, sweetie 🍪", "You did your best, dear", "Louder next time, love!")

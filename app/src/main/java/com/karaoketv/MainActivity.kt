@@ -154,6 +154,37 @@ class MainActivity : Activity(), PartyBackend.Listener {
     // Lifecycle
     // =====================================================================================
 
+    /**
+     * Neon text glows (text shadows) spread outside the text's own box. On the Shield they were cut
+     * off at that box, which showed as a lit rectangle behind the words, so: each glowing text gets
+     * room for its glow inside its own box (extra padding, taken back with negative margins, so
+     * nothing moves), and the layouts around it, up to the nearest scrolling list, no longer cut
+     * their children off at their edges.
+     */
+    private fun makeRoomForGlows(v: View) {
+        if (v is ViewGroup) for (i in 0 until v.childCount) makeRoomForGlows(v.getChildAt(i))
+        if (v !is TextView || v.shadowRadius <= 0f) return
+        val r = Math.ceil((v.shadowRadius + maxOf(Math.abs(v.shadowDx), Math.abs(v.shadowDy))).toDouble()).toInt()
+        val lp = v.layoutParams as? ViewGroup.MarginLayoutParams
+        val wide = lp?.width == ViewGroup.LayoutParams.WRAP_CONTENT
+        val tall = lp?.height == ViewGroup.LayoutParams.WRAP_CONTENT
+        v.setPaddingRelative(v.paddingStart + (if (wide) r else 0), v.paddingTop + (if (tall) r else 0),
+            v.paddingEnd + (if (wide) r else 0), v.paddingBottom + (if (tall) r else 0))
+        if (lp != null) {
+            if (wide) { lp.marginStart = lp.marginStart - r; lp.marginEnd = lp.marginEnd - r }
+            if (tall) { lp.topMargin -= r; lp.bottomMargin -= r }
+            v.layoutParams = lp
+        }
+        var p = v.parent as? ViewGroup
+        var levels = 0
+        while (p != null && p !is ScrollView && p !is android.widget.HorizontalScrollView && levels < 5) {
+            p.clipChildren = false
+            p.clipToPadding = false
+            p = p.parent as? ViewGroup
+            levels++
+        }
+    }
+
     /** Scale the whole interface to the TV (see TvScale). */
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(newBase)
@@ -172,6 +203,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        makeRoomForGlows(findViewById(android.R.id.content))
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         goFullScreen()
 
@@ -291,7 +323,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
                     if (!fromUser) return
                     fxVolume = value
                     sfx.master = value / 100f
-                    findViewById<TextView>(R.id.fxValue).text = "$value%"
+                    this@MainActivity.findViewById<TextView>(R.id.fxValue).text = "$value%"   // the screen's, not the slider's
                 }
                 override fun onStartTrackingTouch(bar: SeekBar) {}
                 // Let them hear it
@@ -364,8 +396,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
         queue.fair = prefs.getBoolean("fair", false)
         updateFairButton()
         goLobby()
-        lobbyBrowser.runQuickPick(0)
         if (savedInstanceState == null) playIntro()
+        // The first songs are built after the opening (30 cards built mid-animation made it stutter)
+        if (intro == null) lobbyBrowser.runQuickPick(0)
     }
 
     // =====================================================================================
@@ -389,13 +422,15 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val tag = findViewById<View>(R.id.introTag)
         // 1) the mic drops in and bounces
         mic.alpha = 0f; mic.scaleX = 0.2f; mic.scaleY = 0.2f; mic.rotation = -25f
+        // withLayer: the big 🎤 is drawn once and the picture is scaled, instead of the emoji being
+        // redrawn at a new size every frame (that was the stutter at the start)
         mic.animate().alpha(1f).scaleX(1f).scaleY(1f).rotation(0f).setStartDelay(150).setDuration(550)
-            .setInterpolator(OvershootInterpolator(2.2f)).start()
+            .setInterpolator(OvershootInterpolator(2.2f)).withLayer().start()
         // 2) KARAOKE slides in from the left, NIGHT from the right
         karaoke.alpha = 0f; karaoke.translationX = -px(260).toFloat()
-        karaoke.animate().alpha(1f).translationX(0f).setStartDelay(450).setDuration(500).setInterpolator(DecelerateInterpolator(2f)).start()
+        karaoke.animate().alpha(1f).translationX(0f).setStartDelay(450).setDuration(500).setInterpolator(DecelerateInterpolator(2f)).withLayer().start()
         night.alpha = 0f; night.translationX = px(260).toFloat()
-        night.animate().alpha(1f).translationX(0f).setStartDelay(650).setDuration(500).setInterpolator(DecelerateInterpolator(2f)).start()
+        night.animate().alpha(1f).translationX(0f).setStartDelay(650).setDuration(500).setInterpolator(DecelerateInterpolator(2f)).withLayer().start()
         // 3) NIGHT flickers like a neon sign warming up, then the tagline and a burst of confetti
         tag.alpha = 0f; tag.translationY = px(14).toFloat()
         tag.animate().alpha(1f).translationY(0f).setStartDelay(1350).setDuration(400).start()
@@ -432,6 +467,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
             v.findViewById<View>(it)?.apply { animate().cancel(); animate().alpha(0f).translationY(-px(30).toFloat()).setStartDelay(0).setDuration(ms).start() }
         }
         ui.postDelayed({ (v.parent as? ViewGroup)?.removeView(v) }, ms + 50)
+        // Now the first songs (the lobby has slid in; they rise into place)
+        ui.postDelayed({ if (firstLobbyLoad) lobbyBrowser.runQuickPick(0) }, ms)
         lobby.animate().cancel()
         lobby.alpha = 1f
         lobby.translationY = px(24).toFloat()
@@ -2756,7 +2793,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         findViewById<TextView>(R.id.achTitle).text = "🏅 ${r.name.uppercase()}"
         findViewById<TextView>(R.id.achSub).text =
             "$main of $total achievements  ·  $sung of ${Achievements.GENRES.size} genres  ·  ${if (isTouch) "swipe" else "▲▼"} to scroll"
-        findViewById<TextView>(R.id.achStats).text = statsText(Stats.of(r, board.all()))
+        showStats(Stats.of(r, board.all()))
         val grid = findViewById<LinearLayout>(R.id.achGrid)
         grid.removeAllViews()
         // Unlocked first (oldest first), then the ones still to get; 5 a row so all fit on screen
@@ -2806,21 +2843,51 @@ class MainActivity : Activity(), PartyBackend.Listener {
         findViewById<View>(R.id.achClose).requestFocus()
     }
 
-    /** "⭐ Best: 94 · “Song”   ❤️ Favourite: …" on one line, "🔥 3 parties in a row …" on the next. */
-    private fun statsText(s: PlayerStats): String {
-        val first = listOfNotNull(
-            s.best?.let { b -> "⭐ Best: ${scoreText(b)}" + (s.bestSong?.let { " · “${it.take(28)}”" } ?: "") },
-            s.favourite?.let { "❤️ Favourite: “${it.take(28)}”" + (if (s.favouriteTimes > 1) " (${s.favouriteTimes}×)" else "") },
-        )
-        val streak = when {
-            s.streak > 1 -> "🔥 ${s.streak} parties in a row" + (if (s.bestStreak > s.streak) " (best ${s.bestStreak})" else "")
-            s.bestStreak > 1 -> "🔥 Best run: ${s.bestStreak} parties in a row"
-            else -> null
+    /**
+     * A singer's stats as a row of tiles, each read at a glance: a small label on top, the number
+     * big in the middle, a detail underneath (the song, how often, their best run).
+     */
+    private fun showStats(s: PlayerStats) {
+        val row = findViewById<LinearLayout>(R.id.achStats)
+        row.removeAllViews()
+        val times = if (s.favouriteTimes > 1) "sung ${s.favouriteTimes} times" else "sung once"
+        listOf(
+            StatTile("⭐", "BEST SCORE", s.best?.let { scoreText(it) } ?: "–", s.bestSong?.let { "“$it”" } ?: "no solo score yet", gold = true, weight = 1.5f),
+            StatTile("❤️", "FAVOURITE", s.favourite?.let { "“$it”" } ?: "–", if (s.favourite != null) times else "", weight = 1.9f, small = true),
+            StatTile("🎤", "SONGS", s.songs.toString(), "all time"),
+            StatTile("🌙", "PARTIES", s.parties.toString(), if (s.parties == 1) "party" else "parties"),
+            StatTile("🔥", "IN A ROW", if (s.streak > 1) s.streak.toString() else "–",
+                when { s.bestStreak > maxOf(s.streak, 1) -> "best ${s.bestStreak}"; s.streak > 1 -> "parties"; else -> "sing again soon" }),
+        ).forEachIndexed { i, t ->
+            row.addView(statTile(t), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, t.weight).apply {
+                if (i > 0) marginStart = px(8)
+            })
         }
-        val second = listOfNotNull(streak,
-            "🎤 ${s.songs} song${if (s.songs == 1) "" else "s"}",
-            "🌙 ${s.parties} part${if (s.parties == 1) "y" else "ies"}")
-        return (if (first.isEmpty()) "" else first.joinToString("     ") + "\n") + second.joinToString("     ")
+    }
+
+    private class StatTile(val icon: String, val label: String, val value: String, val detail: String,
+                           val gold: Boolean = false, val weight: Float = 1f, val small: Boolean = false)
+
+    private fun statTile(t: StatTile): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        setPadding(px(10), px(6), px(10), px(7))
+        background = android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = px(12).toFloat()
+            setColor(0x1AFFFFFF)
+            setStroke(px(1), if (t.gold) 0x66FFD23F else 0x26FFFFFF)
+        }
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        contentDescription = "${t.label.lowercase()}: ${t.value}, ${t.detail}"
+        addView(label("${t.icon}  ${t.label}", 11f, R.color.text_dim, bold = true).apply { gravity = Gravity.CENTER; letterSpacing = 0.08f },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        addView(label(t.value, if (t.small) 15f else 24f, if (t.gold) R.color.gold else R.color.text_main, bold = true).apply {
+            gravity = Gravity.CENTER
+            if (t.small) maxLines = 2                  // a song title gets two lines
+            typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(2) })
+        if (t.detail.isNotEmpty()) addView(label(t.detail, 12f, R.color.text_dim).apply { gravity = Gravity.CENTER },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(1) })
     }
 
     /** One achievement: in colour with how it was won and the date, or faded with how to win it. */
@@ -2864,7 +2931,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     private fun podiumColumn(e: Entry, place: Int): View {
-        val heights = intArrayOf(56, 42, 30)   // lower steps leave room for the full list of 8 below
+        val heights = intArrayOf(56, 44, 36)   // lower steps leave room for the full list of 8 below
         val medals = arrayOf("🥇", "🥈", "🥉")
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -2878,7 +2945,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
             addView(label(scoreText(e.score), 26f, R.color.gold, bold = true).apply { gravity = Gravity.CENTER })
             addView(TextView(context).apply {
                 text = medals[place]
-                textSize = 30f
+                textSize = minOf(30f, heights[place] * 0.58f)      // the medal always fits its step
+                includeFontPadding = false
                 gravity = Gravity.CENTER
                 background = android.graphics.drawable.GradientDrawable(
                     android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
