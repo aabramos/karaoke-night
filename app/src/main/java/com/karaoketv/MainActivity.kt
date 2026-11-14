@@ -159,12 +159,28 @@ class MainActivity : Activity(), PartyBackend.Listener {
      * off at that box, which showed as a lit rectangle behind the words, so: each glowing text gets
      * room for its glow inside its own box (extra padding, taken back with negative margins, so
      * nothing moves), and the layouts around it, up to the nearest scrolling list, no longer cut
-     * their children off at their edges.
+     * their children off at their edges. Scrolling lists then clip themselves (to their own outline),
+     * since their parent no longer hides what has scrolled out of view.
      */
-    private fun makeRoomForGlows(v: View) {
-        if (v is ViewGroup) for (i in 0 until v.childCount) makeRoomForGlows(v.getChildAt(i))
+    private fun makeRoomForGlows(root: View) {
+        glowRoom(root)
+        clipScrollers(root)
+    }
+
+    private fun clipScrollers(v: View) {
+        if (v is ScrollView || v is android.widget.HorizontalScrollView) {
+            v.outlineProvider = android.view.ViewOutlineProvider.BOUNDS
+            v.clipToOutline = true
+        }
+        if (v is ViewGroup) for (i in 0 until v.childCount) clipScrollers(v.getChildAt(i))
+    }
+
+    private fun glowRoom(v: View) {
+        if (v is ViewGroup) for (i in 0 until v.childCount) glowRoom(v.getChildAt(i))
         if (v !is TextView || v.shadowRadius <= 0f) return
-        val r = Math.ceil((v.shadowRadius + maxOf(Math.abs(v.shadowDx), Math.abs(v.shadowDy))).toDouble()).toInt()
+        // A glow fades out over about twice its radius: room for all of it, so even when the text is
+        // drawn on its own (an animation layer, a fade) nothing of the glow is cut into a box
+        val r = Math.ceil((2 * v.shadowRadius + maxOf(Math.abs(v.shadowDx), Math.abs(v.shadowDy))).toDouble()).toInt()
         val lp = v.layoutParams as? ViewGroup.MarginLayoutParams
         val wide = lp?.width == ViewGroup.LayoutParams.WRAP_CONTENT
         val tall = lp?.height == ViewGroup.LayoutParams.WRAP_CONTENT
@@ -2879,14 +2895,13 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         contentDescription = "${t.label.lowercase()}: ${t.value}, ${t.detail}"
-        addView(label("${t.icon}  ${t.label}", 11f, R.color.text_dim, bold = true).apply { gravity = Gravity.CENTER; letterSpacing = 0.08f },
+        addView(label("${t.icon}  ${t.label}", 11f, R.color.text_dim).apply { gravity = Gravity.CENTER; letterSpacing = 0.08f },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        addView(label(t.value, if (t.small) 15f else 24f, if (t.gold) R.color.gold else R.color.text_main, bold = true).apply {
+        addView(label(t.value, if (t.small) 13f else 22f, if (t.gold) R.color.gold else R.color.text_main).apply {
             gravity = Gravity.CENTER
             if (t.small) maxLines = 2                  // a song title gets two lines
-            typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(2) })
-        if (t.detail.isNotEmpty()) addView(label(t.detail, 12f, R.color.text_dim).apply { gravity = Gravity.CENTER },
+        if (t.detail.isNotEmpty()) addView(label(t.detail, 11f, R.color.text_dim).apply { gravity = Gravity.CENTER },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(1) })
     }
 
