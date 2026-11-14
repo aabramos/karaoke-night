@@ -120,7 +120,6 @@ class SongBrowser(
         val gen = ++generation
         lastQuery = roll.query
         for (i in 0 until chips.childCount) chips.getChildAt(i).isSelected = i == surpriseChip
-        scroll.animate().alpha(0.3f).setDuration(150).start()
         var result: Result<List<Song>>? = null
         val started = android.os.SystemClock.uptimeMillis()
         val spin = object : Runnable {
@@ -198,7 +197,6 @@ class SongBrowser(
         lastQuery = query
         retry = null
         showStatus("🎵  Searching…")
-        scroll.animate().alpha(0.3f).setDuration(150).start()   // old results fade back while searching
         // The background task only keeps a weak link back to this screen, so a slow network
         // request can never hold a closed screen in memory.
         val engine = search
@@ -238,8 +236,6 @@ class SongBrowser(
     fun clear() {
         generation++
         results.removeAllViews()
-        scroll.animate().cancel()
-        scroll.alpha = 1f
         status.visibility = View.GONE
     }
 
@@ -252,8 +248,6 @@ class SongBrowser(
     private fun render(songs: List<Song>, notes: Map<String, String> = emptyMap()) {
         results.removeAllViews()
         scroll.scrollTo(0, 0)
-        scroll.animate().cancel()
-        scroll.alpha = 1f
         status.visibility = View.GONE
         if (columns > 1) {
             songs.chunked(columns).forEach { rowSongs ->
@@ -267,6 +261,13 @@ class SongBrowser(
             }
         } else {
             songs.forEach { results.addView(card(R.layout.item_song_row, results, it, notes[it.id])) }
+        }
+        // New results rise into place, row after row (only the ones on screen; position only, so it's cheap)
+        for (i in 0 until minOf(4, results.childCount)) results.getChildAt(i).apply {
+            animate().cancel()
+            translationY = px(18).toFloat()
+            animate().translationY(0f).setStartDelay(i * 40L).setDuration(220)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
         }
     }
 

@@ -33,6 +33,39 @@
         android:importantForAccessibility="no"
         android:visibility="gone" />
 
+    <!-- The crowd's hype: a thin bar on the left edge, shown once phones start cheering -->
+    <com.karaoketv.HypeBarView
+        android:id="@+id/hypeBar"
+        android:layout_width="5dp"
+        android:layout_height="200dp"
+        android:layout_gravity="start|center_vertical"
+        android:layout_marginStart="10dp"
+        android:alpha="0.85"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
+    <!-- Revealed only once the bar is full: until then nobody is told what the bar is -->
+    <TextView
+        android:id="@+id/hypeLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|center_vertical"
+        android:layout_marginStart="22dp"
+        android:background="@drawable/chip_bg"
+        android:fontFamily="sans-serif-black"
+        android:importantForAccessibility="no"
+        android:paddingStart="10dp"
+        android:paddingTop="3dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="3dp"
+        android:shadowColor="@color/gold"
+        android:shadowRadius="12"
+        android:text="🔥 HYPE"
+        android:textColor="@color/gold"
+        android:textSize="15sp"
+        android:translationY="-88dp"
+        android:visibility="gone" />
+
     <!-- Covers the video while paused and in the last seconds, where YouTube shows suggestions -->
     <FrameLayout
         android:id="@+id/stageCurtain"
@@ -89,6 +122,64 @@
         android:id="@+id/intermission"
         layout="@layout/intermission"
         android:visibility="gone" />
+
+    <!-- A dedication: "Ana sings this for Bia", for a few seconds before the song starts -->
+    <FrameLayout
+        android:id="@+id/dedicationLayer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/scrim_strong"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/dedIcon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="💌"
+                android:textSize="64sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:letterSpacing="0.3"
+                android:text="A DEDICATION"
+                android:textColor="@color/neon_pink"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/dedText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:fontFamily="sans-serif-black"
+                android:gravity="center"
+                android:maxWidth="820dp"
+                android:shadowColor="@color/neon_pink"
+                android:shadowRadius="24"
+                android:textColor="#FFFFFF"
+                android:textSize="40sp" />
+
+            <TextView
+                android:id="@+id/dedSong"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:maxWidth="760dp"
+                android:textColor="@color/text_dim"
+                android:textSize="18sp" />
+        </LinearLayout>
+    </FrameLayout>
 
     <include
         android:id="@+id/scoreLayer"
@@ -164,6 +255,25 @@
         android:text="📡 No internet. Songs wait here and continue by themselves when it's back."
         android:textColor="#FFFFFF"
         android:textSize="16sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <!-- "Starting in 10…": the last seconds before the party starts by itself; any button cancels -->
+    <TextView
+        android:id="@+id/autoStart"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="96dp"
+        android:accessibilityLiveRegion="polite"
+        android:background="@drawable/panel_bg"
+        android:gravity="center"
+        android:paddingStart="28dp"
+        android:paddingTop="14dp"
+        android:paddingEnd="28dp"
+        android:paddingBottom="14dp"
+        android:textColor="#FFFFFF"
+        android:textSize="20sp"
         android:textStyle="bold"
         android:visibility="gone" />
 

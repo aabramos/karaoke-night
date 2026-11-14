@@ -91,6 +91,14 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private lateinit var stageCurtain: View
     private lateinit var toastView: TextView
     private lateinit var confetti: ConfettiView
+    private lateinit var hypeBar: HypeBarView
+    private lateinit var hypeLabel: TextView
+
+    /** This song's crowd hype (see [Hype]). */
+    private val hype = Hype()
+
+    /** Tonight's look (Christmas, Halloween, Carnival or none). */
+    private var theme = PartyTheme.NONE
     private lateinit var lobbyBrowser: SongBrowser
     private lateinit var panelBrowser: SongBrowser
 
@@ -205,6 +213,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         stageCurtain = findViewById(R.id.stageCurtain)
         toastView = findViewById(R.id.toast)
         confetti = findViewById(R.id.confetti)
+        hypeBar = findViewById(R.id.hypeBar)
+        hypeLabel = findViewById(R.id.hypeLabel)
 
         lobbyBrowser = SongBrowser(
             this, search, io,
@@ -230,13 +240,14 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
         click(R.id.btnBoard) { showBoard() }
         click(R.id.btnRecap) { showRecap() }
+        click(R.id.settingsFair) { toggleFair() }
         click(R.id.recapDone) { hideRecap() }
         click(R.id.recapAgain) { recapGo(0) }
         // Phones: a tap anywhere moves the show on (the buttons at the end handle their own taps)
         recapLayer.setOnClickListener { if (!findViewById<View>(R.id.recapEnd).isShown) recapGo(recapStep + 1) }
         click(R.id.boardClose) { hideBoard() }
         click(R.id.achClose) { hideSinger() }
-        click(R.id.btnAbout) { showAbout() }
+        click(R.id.settingsAbout) { hideSettings(); showAbout() }
         click(R.id.aboutClose) { hideAbout() }
         click(R.id.aboutOpen) { openProjectPage() }
         click(R.id.btnVoice) { voiceSearch() }
@@ -257,12 +268,11 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
         click(R.id.qrCard) { showBigQr() }
         click(R.id.bigQrClose) { hideBigQr() }
-        click(R.id.btnMusic) { showVolumePanel() }
-        click(R.id.volumeDone) { hideVolumePanel() }
+        click(R.id.btnSettings) { showSettings() }
+        click(R.id.volumeDone) { hideSettings() }
         click(R.id.volumeMusic) {
             music.enabled = !music.enabled
             updateVolumePanel()
-            updateMusicButton()
         }
         findViewById<SeekBar>(R.id.volumeSlider).apply {
             keyProgressIncrement = 5
@@ -302,7 +312,6 @@ class MainActivity : Activity(), PartyBackend.Listener {
                     music.volume = value
                     if (!music.enabled && value > 0) music.enabled = true   // moving it up turns the music on
                     updateVolumePanel()
-                    updateMusicButton()
                 }
                 override fun onStartTrackingTouch(bar: SeekBar) {}
                 override fun onStopTrackingTouch(bar: SeekBar) {}
@@ -348,10 +357,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
 
         setUpTouch()
-        updateMusicButton()
         applyCountry()
         updateQr()
         QueueStore.restore(prefs, queue)   // songs survive an accidental exit
+        queue.sungTonight = ::sungTonight
+        queue.fair = prefs.getBoolean("fair", false)
+        updateFairButton()
         goLobby()
         lobbyBrowser.runQuickPick(0)
         if (savedInstanceState == null) playIntro()
@@ -408,15 +419,23 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private val introEnd = Runnable { finishIntro(fast = false) }
 
-    /** Fades the opening out and the lobby in; the intro's views are then thrown away. */
+    /**
+     * The opening's words float up and fade (each one on its own: small and cheap, unlike fading
+     * the whole screen) while the lobby slides into place; the intro's views are then thrown away.
+     */
     private fun finishIntro(fast: Boolean) {
         val v = intro ?: return
         intro = null
         listOf(introPop, introFlicker, introEnd).forEach { ui.removeCallbacks(it) }
-        val ms = if (fast) 200L else 500L
-        v.animate().alpha(0f).scaleX(1.06f).scaleY(1.06f).setStartDelay(0).setDuration(ms)
-            .withEndAction { (v.parent as? ViewGroup)?.removeView(v) }.start()
-        lobby.animate().alpha(1f).setStartDelay(0).setDuration(ms).start()
+        val ms = if (fast) 200L else 450L
+        listOf(R.id.introMic, R.id.introKaraoke, R.id.introNight, R.id.introTag).forEach {
+            v.findViewById<View>(it)?.apply { animate().cancel(); animate().alpha(0f).translationY(-px(30).toFloat()).setStartDelay(0).setDuration(ms).start() }
+        }
+        ui.postDelayed({ (v.parent as? ViewGroup)?.removeView(v) }, ms + 50)
+        lobby.animate().cancel()
+        lobby.alpha = 1f
+        lobby.translationY = px(24).toFloat()
+        lobby.animate().translationY(0f).setStartDelay(0).setDuration(ms).setInterpolator(DecelerateInterpolator(2f)).start()
     }
 
     /**
@@ -470,6 +489,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         onNetworkChanged()
         if (mode == Mode.LOBBY || mode == Mode.INTERMISSION) music.start()
         stageBg.animating = mode != Mode.SINGING
+        lastInteraction = System.currentTimeMillis()      // back in the app: a full wait before it starts by itself
         ui.postDelayed(autopilot, 5000)
         // resume whatever was counting down when we left
         if (mode == Mode.INTERMISSION) { ui.removeCallbacks(countdownTick); ui.post(countdownTick) }
@@ -487,6 +507,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         sfx.stop(sfx.drumroll)
         QueueStore.save(prefs, queue)
         ui.removeCallbacks(autopilot)
+        autoStartAt = 0L
+        autoStartView.visibility = View.GONE
         ui.removeCallbacks(countdownTick)
         ui.removeCallbacks(scoreAutoNext)
         ui.removeCallbacks(scoreMusic)
@@ -550,6 +572,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
         lastInteraction = System.currentTimeMillis()
+        // A tap anywhere during "Starting in 10…" cancels it (and does nothing else)
+        if (autoStartView.isShown) { if (ev.action == android.view.MotionEvent.ACTION_UP) cancelAutoStart(); return true }
         return super.dispatchTouchEvent(ev)
     }
 
@@ -557,6 +581,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         lastInteraction = System.currentTimeMillis()
         val down = e.action == KeyEvent.ACTION_DOWN
         val first = down && e.repeatCount == 0
+        // Any button during "Starting in 10…" cancels it (and does nothing else)
+        if (autoStartView.isShown) { if (first) cancelAutoStart(); return true }
         // Any button during the opening animation skips it (and does nothing else)
         if (intro != null) { if (first) finishIntro(fast = true); return true }
         val code = e.keyCode
@@ -590,7 +616,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         if (boardLayer.isShown) { if (back) { if (first) hideBoard(); return true }; return super.dispatchKeyEvent(e) }
         if (qrLayer.isShown) { if (back) { if (first) hideBigQr(); return true }; return super.dispatchKeyEvent(e) }
         if (countryLayer.isShown) { if (back) { if (first) hideCountries(); return true }; return super.dispatchKeyEvent(e) }
-        if (volumeLayer.isShown) { if (back) { if (first) hideVolumePanel(); return true }; return super.dispatchKeyEvent(e) }
+        if (volumeLayer.isShown) { if (back) { if (first) hideSettings(); return true }; return super.dispatchKeyEvent(e) }
         if (aboutLayer.isShown) { if (back) { if (first) hideAbout(); return true }; return super.dispatchKeyEvent(e) }
 
         when (mode) {
@@ -654,6 +680,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     // =====================================================================================
 
     private fun goLobby() {
+        applyTheme()
         mode = Mode.LOBBY
         repairingKey = 0L
         ui.removeCallbacks(countdownTick)
@@ -664,8 +691,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
         stage(false)
         listOf(hud, queuePanel, intermission, scoreLayer).forEach { it.visibility = View.GONE }
         lobby.visibility = View.VISIBLE
-        lobby.alpha = 0f
-        lobby.animate().alpha(1f).setDuration(350).start()
+        lobby.animate().cancel()
+        lobby.alpha = 1f
+        lobby.translationY = px(24).toFloat()           // slides into place: position only (no full-screen fade)
+        lobby.animate().translationY(0f).setDuration(300).setInterpolator(DecelerateInterpolator(2f)).start()
         stageBg.animating = true
         music.start()
         renderQueues()
@@ -674,21 +703,49 @@ class MainActivity : Activity(), PartyBackend.Listener {
         if (start.isShown) start.requestFocus() else if (!lobbyBrowser.focusFirst()) findViewById<View>(R.id.lobbySearch).requestFocus()
     }
 
-    private fun updateMusicButton() {
-        findViewById<TextView>(R.id.btnMusic).text = if (volume == 0) "🔇" else if (music.enabled) "🎵" else "🔈"
-    }
-
-    /** Starts the party by itself if songs are waiting and nobody has touched the remote for a while. */
+    /**
+     * Starts the party by itself if songs are waiting and nobody has touched the remote for
+     * [AUTOSTART_MS], after a "Starting in 10…" warning that any button cancels. The warning always
+     * runs in full (even when a phone adds the first song to a TV left alone for an hour). Once
+     * cancelled it waits until the queue changes or a song is played.
+     */
     private val autopilot = object : Runnable {
         override fun run() {
-            if (mode == Mode.LOBBY && !queue.isEmpty() && !anyOverlayOpen() &&
-                System.currentTimeMillis() - lastInteraction > AUTOSTART_MS
-            ) {
-                toast("🎤 Songs are waiting. Let's go!")
-                startNext()
+            val now = System.currentTimeMillis()
+            val ready = mode == Mode.LOBBY && !queue.isEmpty() && !anyOverlayOpen() && !autoStartHeld
+            if (ready && autoStartAt == 0L && now - lastInteraction >= AUTOSTART_MS - AUTOSTART_WARN_MS) autoStartAt = now + AUTOSTART_WARN_MS
+            val left = autoStartAt - now
+            when {
+                !ready || autoStartAt == 0L -> { autoStartAt = 0L; autoStartView.visibility = View.GONE }
+                left <= 0 -> {
+                    autoStartAt = 0L
+                    autoStartView.visibility = View.GONE
+                    toast("🎤 Songs are waiting. Let's go!")
+                    startNext()
+                }
+                else -> {
+                    val next = queue.snapshot().firstOrNull()?.singer.orEmpty()
+                    autoStartView.text = "▶ Starting in ${(left + 999) / 1000}…" + (if (next.isNotEmpty()) "  $next is up first" else "") +
+                        "\n" + if (isTouch) "Tap anywhere to wait" else "Press any button to wait"
+                    if (!autoStartView.isShown) { autoStartView.visibility = View.VISIBLE; popIn(autoStartView) }
+                }
             }
-            ui.postDelayed(this, 5000)
+            ui.postDelayed(this, 1000)
         }
+    }
+
+    /** When "Starting in 10…" reaches 0 (0: no countdown running). */
+    private var autoStartAt = 0L
+
+    /** "Starting in 10…" cancelled: no starting by itself until the queue changes or a song plays. */
+    private var autoStartHeld = false
+    private val autoStartView by lazy { findViewById<TextView>(R.id.autoStart) }
+
+    private fun cancelAutoStart() {
+        autoStartHeld = true
+        autoStartAt = 0L
+        autoStartView.visibility = View.GONE
+        toast("OK, waiting. Press ▶ START when you're ready")
     }
 
     // =====================================================================================
@@ -696,6 +753,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     // =====================================================================================
 
     private fun onQueueChanged() {
+        autoStartHeld = false                      // new songs: the party may start by itself again
         QueueStore.save(prefs, queue)
         renderQueues()
         if (mode == Mode.SCORE && scoreDone) updateScoreNext()
@@ -706,7 +764,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun renderQueues() {
         val items = queue.snapshot()
         renderQueueList(findViewById(R.id.lobbyQueueList), items, 30, fallback = findViewById(R.id.btnStart), guide = true)
-        findViewById<TextView>(R.id.lobbyQueueTitle).text = if (items.isEmpty()) "UP NEXT" else "UP NEXT · ${items.size}"
+        findViewById<TextView>(R.id.lobbyQueueTitle).text =
+            (if (items.isEmpty()) "UP NEXT" else "UP NEXT · ${items.size}") + if (queue.fair) "  ·  ⚖️ FAIR" else ""
         val start = findViewById<TextView>(R.id.btnStart)
         val wasFocused = start.isFocused
         start.visibility = if (items.isNotEmpty() && mode == Mode.LOBBY) View.VISIBLE else View.GONE
@@ -719,15 +778,19 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private fun renderQueueList(list: LinearLayout, items: List<QueueItem>, max: Int, fallback: View, guide: Boolean = false) {
         val hadFocus = list.findFocus() != null
+        // Songs that weren't in this list a moment ago slide in (not on the first fill, nor when it opens)
+        val before = (list.tag as? Set<*>)?.takeIf { list.isShown }
+        list.tag = items.take(max).mapTo(HashSet()) { it.key }
         list.removeAllViews()
         items.take(max).forEachIndexed { i, item ->
             val row = layoutInflater.inflate(R.layout.item_queue, list, false)
             row.findViewById<TextView>(R.id.qAvatar).avatar(item.singer)
             row.findViewById<TextView>(R.id.qSinger).text = "${i + 1}. ${item.singer}"
             row.findViewById<TextView>(R.id.qSong).text = item.song.title
-            row.findViewById<TextView>(R.id.qBadge).text = if (item.fromPhone) "📱" else ""
+            row.findViewById<TextView>(R.id.qBadge).text = (if (item.fromPhone) "📱" else "") + (if (item.dedication != null) "💌" else "")
             row.setOnClickListener { queueItemMenu(item) }
             list.addView(row)
+            if (before != null && item.key !in before) slideIn(row, 60L * i.coerceAtMost(3))
         }
         if (items.size > max) list.addView(smallText("+ ${items.size - max} more waiting"))
         if (items.isEmpty()) list.addView(smallText(
@@ -783,6 +846,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         pickerNew.clear()
         overlayReturnFocus = currentFocus
         clearPickerInput()
+        findViewById<EditText>(R.id.pickerFor).setText("")
         pickerLayer.visibility = View.VISIBLE
         popIn(pickerLayer)
         renderPicker(focus = R.id.pickerNames)
@@ -1009,7 +1073,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val duet = names.size == 2
         val singer = names.joinToString(DUET_JOIN)
         val singNow = mode == Mode.LOBBY && queue.isEmpty()
-        val item = QueueItem(song, singer, fromPhone = false, duet = duet, genres = Genres.detect(song.title, pickerFrom))
+        val forWho = dedicationFor(findViewById<EditText>(R.id.pickerFor).text.toString(), singer)
+        val item = QueueItem(song, singer, fromPhone = false, duet = duet, genres = Genres.detect(song.title, pickerFrom), dedication = forWho)
         val err = queue.add(item)
         closePicker()
         if (err != null) { toast(err); return }
@@ -1035,6 +1100,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
     // =====================================================================================
 
     private fun startNext() {
+        hideDedication()
+        dedicationShown = 0L
+        autoStartHeld = false
+        autoStartView.visibility = View.GONE
         stopListening()                           // the mic isn't needed once a song starts
         val item = queue.pollNext() ?: return goLobby()
         queue.current = item
@@ -1090,6 +1159,35 @@ class MainActivity : Activity(), PartyBackend.Listener {
             if (n == 0) "Last song in the queue. Add more! 📱" else "🎤 $n more waiting after this"
     }
 
+    // ---------- fair queue ----------
+
+    private fun toggleFair() {
+        queue.fair = !queue.fair
+        prefs.edit().putBoolean("fair", queue.fair).apply()
+        updateFairButton()
+    }
+
+    private fun updateFairButton() {
+        findViewById<TextView>(R.id.settingsFair).apply {
+            text = if (queue.fair) "⚖️ Fair queue: On" else "⚖️ Fair queue: Off"
+            isSelected = queue.fair
+        }
+    }
+
+    /**
+     * Songs each person has sung tonight (lower-case names), for the fair queue: the songs played
+     * tonight, plus the one being sung now. Called from the phones' threads too: it only reads.
+     */
+    private fun sungTonight(): Map<String, Int> {
+        val since = System.currentTimeMillis() - Leaderboard.TONIGHT_MS
+        val played = history.all().filter { it.time >= since }
+        val counts = HashMap<String, Int>()
+        fun count(singer: String) = singer.split(DUET_JOIN).forEach { p -> if (p.isNotBlank()) counts.merge(p.lowercase(), 1, Int::plus) }
+        played.forEach { count(it.singer) }
+        queue.current?.let { now -> if (played.none { it.song.id == now.song.id }) count(now.singer) }
+        return counts
+    }
+
     private fun singLater() {
         val item = queue.current ?: return
         if (queue.isEmpty()) { toast("Nobody else is waiting. ${item.singer}, you're up! 🎤"); return }
@@ -1103,10 +1201,52 @@ class MainActivity : Activity(), PartyBackend.Listener {
     // Singing
     // =====================================================================================
 
+    // ---------- dedications ----------
+
+    /** The song whose dedication has been shown (it's shown once, then the song starts). */
+    private var dedicationShown = 0L
+    private val dedicationLayer by lazy { findViewById<View>(R.id.dedicationLayer) }
+
+    /** "Ana sings this for Bia" for [DEDICATION_MS], then the song starts (OK starts it straight away). */
+    private fun showDedication(item: QueueItem, forWho: String) {
+        dedicationShown = item.key
+        findViewById<TextView>(R.id.dedText).text = "${item.singer} ${if (item.duet) "sing" else "sings"} this for $forWho"
+        findViewById<TextView>(R.id.dedSong).text = shortTitle(item.song.title)
+        dedicationLayer.visibility = View.VISIBLE
+        popIn(dedicationLayer)
+        // The 💌 flies in with a wobble, then the words rise under it
+        findViewById<View>(R.id.dedIcon).apply {
+            animate().cancel()
+            scaleX = 0f; scaleY = 0f; rotation = -35f
+            animate().scaleX(1f).scaleY(1f).rotation(0f).setStartDelay(120).setDuration(520)
+                .setInterpolator(OvershootInterpolator(3f)).start()
+        }
+        findViewById<View>(R.id.dedText).apply {
+            animate().cancel()
+            alpha = 0f; translationY = px(24).toFloat()
+            animate().alpha(1f).translationY(0f).setStartDelay(320).setDuration(380).setInterpolator(DecelerateInterpolator(2f)).start()
+        }
+        sfx.play(sfx.reveal, 0.7f)
+        confetti.burst(90)
+        ui.removeCallbacks(dedicationDone)
+        ui.postDelayed(dedicationDone, DEDICATION_MS)
+    }
+
+    private val dedicationDone = Runnable { if (mode == Mode.INTERMISSION) beginSinging() }
+
+    private fun hideDedication() {
+        ui.removeCallbacks(dedicationDone)
+        dedicationLayer.visibility = View.GONE
+    }
+
     private fun beginSinging() {
         val item = queue.current ?: return goLobby()
         if (repairingKey == item.key) return   // still looking for a version that plays
         ui.removeCallbacks(countdownTick)
+        // A dedication first (once): "Ana sings this for Bia"
+        val forWho = item.dedication
+        if (forWho != null && dedicationShown != item.key) { showDedication(item, forWho); return }
+        hideDedication()
         if (!net.online) { ui.post(countdownTick); return }   // holds on "Next up" until the internet is back
         val p = player
         if (p == null || !playerReady) {
@@ -1132,6 +1272,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         p.setVolume(volume)
         playerState = PlayerConstants.PlayerState.UNSTARTED
         votes.clear()
+        songEmojis.clear()
+        resetHype()
         p.loadVideo(item.song.id, 0f)
         startTries = 0
         slowChecks = 0
@@ -1241,8 +1383,58 @@ class MainActivity : Activity(), PartyBackend.Listener {
         // Guests' cheers only exist over the video; hiding the view frees its emoji pictures
         if (!on) stageReactions.clear()
         stageReactions.visibility = if (on) View.VISIBLE else View.GONE
+        if (!on) { ui.removeCallbacks(hypeTick); hypeBar.visibility = View.GONE; hypeLabel.visibility = View.GONE }
         updateLive()
     }
+
+    // ---- party themes (special dates) ----
+
+    /** Christmas, Halloween or Carnival tonight? Then the stage and confetti dress up (with a hello). */
+    private fun applyTheme() {
+        val t = PartyTheme.forNight(Achievements.nightOf(System.currentTimeMillis()))
+        if (t == theme) return
+        theme = t
+        stageBg.theme = t
+        confetti.colors = t.confetti
+        t.greeting?.let { ui.postDelayed({ if (mode == Mode.LOBBY) toast(it) }, THEME_HELLO_MS) }
+    }
+
+    // ---- hype meter ----
+
+    private fun resetHype() {
+        hype.reset()
+        ui.removeCallbacks(hypeTick)
+        hypeBar.apply { level = 0f; visibility = View.GONE; animate().cancel(); scaleX = 1f; alpha = 0.85f }
+        hypeLabel.animate().cancel(); hypeLabel.visibility = View.GONE
+    }
+
+    /** A cheer (or 😴 / 🍅) from a phone: the bar moves a little, and drifts back while nobody sends any. */
+    private fun hypeCheer(positive: Boolean) {
+        val ended = hype.cheer(System.currentTimeMillis(), positive)
+        showHype()
+        if (ended) {
+            // An end reached: a short pulse and one emoji; the points wait for the score
+            hypeBar.animate().cancel()
+            hypeBar.scaleX = 2.4f; hypeBar.alpha = 1f
+            hypeBar.animate().scaleX(1f).setDuration(700).setInterpolator(OvershootInterpolator(2f)).start()
+            stageReactions.cheer(if (hype.full) "🔥" else "🍅")
+            if (hype.full) hypeLabel.apply {
+                // Now it's revealed: "🔥 HYPE" pops in beside the bar and stays for the rest of the song
+                visibility = View.VISIBLE; alpha = 0f; scaleX = 0.4f; scaleY = 0.4f
+                animate().alpha(1f).scaleX(1f).scaleY(1f).setInterpolator(OvershootInterpolator(3f)).setDuration(500).start()
+            }
+        }
+    }
+
+    private fun showHype() {
+        val level = hype.at(System.currentTimeMillis())
+        hypeBar.level = level.toFloat()
+        hypeBar.visibility = if (mode == Mode.SINGING && level != 0.0) View.VISIBLE else View.GONE
+        ui.removeCallbacks(hypeTick)
+        if (hypeBar.isShown && hype.points == 0) ui.postDelayed(hypeTick, HYPE_TICK_MS)
+    }
+
+    private val hypeTick = Runnable { showHype() }
 
     /**
      * YouTube shows video suggestions over a paused video and in the last seconds of many videos.
@@ -1261,14 +1453,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 else -> "The score is coming…"
             }
         }
-        if (show && stageCurtain.visibility != View.VISIBLE) {
-            stageCurtain.alpha = 0f
-            stageCurtain.visibility = View.VISIBLE
-            stageCurtain.animate().alpha(1f).setDuration(if (paused) 150 else 700).start()
-        } else if (!show && stageCurtain.visibility == View.VISIBLE) {
-            stageCurtain.animate().cancel()
-            stageCurtain.visibility = View.GONE
-        }
+        // Straight on and off: a full-screen fade over a playing video is costly on the Shield
+        if (show && stageCurtain.visibility != View.VISIBLE) stageCurtain.visibility = View.VISIBLE
+        else if (!show && stageCurtain.visibility == View.VISIBLE) stageCurtain.visibility = View.GONE
     }
 
     // ---- touch (phones and tablets) ----
@@ -1330,6 +1517,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     private fun intermissionToLobby() {
+        hideDedication()
+        dedicationShown = 0L
         queue.current?.let { queue.pushFront(it) }
         queue.current = null
         goLobby()
@@ -1376,7 +1565,6 @@ class MainActivity : Activity(), PartyBackend.Listener {
         volume = value.coerceIn(0, 100)
         if (save) prefs.edit().putInt("music_volume", volume).putInt("fx_volume", fxVolume).apply()
         player?.setVolume(volume)
-        updateMusicButton()
         if (volumeLayer.isShown) findViewById<TextView>(R.id.volumeValue).text = "$volume%"
         findViewById<SeekBar>(R.id.tbVolume).let { if (it.progress != volume) it.progress = volume }
         findViewById<ProgressBar>(R.id.volumeBar).progress = volume
@@ -1420,7 +1608,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val item = queue.current
         if (item != null) {
             val extra = if (finale || fraction >= HUH_FRACTION) setOf("huh") else emptySet()
-            val got = runCatching { achievements.unlockNow(item.singer, extra) }.getOrDefault(emptyList())
+            val got = runCatching { achievements.unlockNow(item.singer, extra, skipped = true) }.getOrDefault(emptyList())
             if (got.isNotEmpty()) toast(got.take(2).joinToString("  ·  ") { (who, a) -> "🏅 $who unlocked ${a.icon} ${a.title}" })
         }
         afterSong()
@@ -1471,7 +1659,16 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val item = queue.current ?: return goLobby()
         history.add(item.song, item.singer)   // for "🕘 Played", even when stopped early
         cheers.save()
-        val score = Judge.score(fraction, Judge.crowd(votes.values)) ?: return afterSong()
+        // The room decides most of it: the phones' votes pull the random roll towards what they
+        // thought (more so when more of the room voted), then the hype bar and past crowds count too
+        songRep = runCatching { achievements.reputation(item.singer) }.getOrDefault(0.0)
+        val phoneVotes = votes.values.map { it[0].toDouble() / it[1] }     // each phone: the average of its emojis
+        // The singer's own phone (the one that queued the song) can't vote, so it isn't counted in the room either
+        val room = ((server?.phonesNow() ?: 0) - (if (item.owner != null) 1 else 0)).coerceAtLeast(0)
+        val crowd = Judge.crowd(phoneVotes, room)
+        val score = Judge.score(fraction, crowd, bonus = hype.points, reputation = songRep) ?: return afterSong()
+        songRoom = crowd.average * crowd.weight             // breaks ties in the rankings
+        if (phoneVotes.size >= Judge.REP_VOTERS) runCatching { achievements.rated(item.singer, phoneVotes.average()) }
         votes.clear()
         mode = Mode.SCORE
         scoreDone = false
@@ -1502,7 +1699,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             override fun run() {
                 if (mode != Mode.SCORE) return
                 if (System.currentTimeMillis() - started >= 2600) { countUp(score, item, fraction < Judge.FINISHED); return }
-                scoreView.text = Random.nextInt(10, 100).toString()
+                scoreView.text = scoreText(Random.nextInt(100, 1000) / 10.0)
                 scoreView.alpha = 0.5f + Random.nextFloat() * 0.5f
                 ui.postDelayed(this, 70)
             }
@@ -1510,20 +1707,21 @@ class MainActivity : Activity(), PartyBackend.Listener {
         ui.postDelayed(shuffle, 250)
     }
 
-    private fun countUp(target: Int, item: QueueItem, stoppedEarly: Boolean) {
+    private fun countUp(target: Double, item: QueueItem, stoppedEarly: Boolean) {
         sfx.stop(sfx.drumroll)
         val scoreView = findViewById<TextView>(R.id.scScore)
         scoreView.alpha = 1f
         var last = -1
-        scoreAnim = ValueAnimator.ofInt(0, target).apply {
+        scoreAnim = ValueAnimator.ofFloat(0f, target.toFloat()).apply {
             duration = 1500
             interpolator = DecelerateInterpolator(2.2f)
             addUpdateListener {
-                val v = it.animatedValue as Int
-                if (v != last) {
-                    last = v
-                    scoreView.text = v.toString()
-                    if (v % 3 == 0) sfx.play(sfx.tick, 0.35f)
+                val v = (it.animatedValue as Float).toDouble()
+                scoreView.text = bigScore(Judge.tenth(v).coerceAtMost(target))
+                val whole = v.toInt()
+                if (whole != last) {
+                    last = whole
+                    if (whole % 3 == 0) sfx.play(sfx.tick, 0.35f)
                 }
             }
             addListener(object : AnimatorListenerAdapter() {
@@ -1537,9 +1735,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
     }
 
-    private fun land(score: Int, item: QueueItem, stoppedEarly: Boolean) {
+    private fun land(score: Double, item: QueueItem, stoppedEarly: Boolean) {
         val scoreView = findViewById<TextView>(R.id.scScore)
-        scoreView.text = score.toString()
+        // The hype bar at an end: a small 🔥 (or 🍅) next to the number
+        scoreView.text = bigScore(score, if (hype.points == 0) "" else if (hype.full) "🔥" else "🍅")
         ui.removeCallbacks(scoreMusic)
         ui.postDelayed(scoreMusic, SCORE_MUSIC_DELAY_MS)
         sfx.play(sfx.reveal)
@@ -1555,14 +1754,24 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }, 350L + n * 160L)
         findViewById<TextView>(R.id.scVerdict).text = Judge.verdict(score)
 
-        val entry = Entry(item.singer, score, item.song.title, System.currentTimeMillis(), duet = item.duet)
+        val entry = Entry(item.singer, score, item.song.title, System.currentTimeMillis(), duet = item.duet, room = songRoom)
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         val before = board.all()                  // a snapshot: add() replaces the list, never changes it
         val record = if (item.duet) null else achievements.of(item.singer)
         val badges = Badges.earned(entry, board.tonightAll(), record?.songs ?: 0, record?.best, hour, limit = 9)
         val rank = board.add(entry)
         val unlocked = runCatching { achievements.record(entry, before, rank, hour, item.genres, stoppedEarly) }.getOrDefault(emptyList())
-        val lines = scoreBadgeLines(unlocked, badges)
+        val hypeLine = when {
+            hype.full -> listOf("🔥 The crowd went wild: +${Hype.BONUS}")
+            hype.booed -> listOf("🍅 The crowd wasn't feeling it: -${Hype.BONUS}")
+            else -> emptyList()
+        }
+        val repLine = when {
+            songRep >= 0.5 -> listOf("⭐ A crowd favourite: +1")
+            songRep <= -0.5 -> listOf("📉 Past crowds were lukewarm: -1")
+            else -> emptyList()
+        }
+        val lines = scoreBadgeLines(unlocked, hypeLine + badges + repLine)   // big news first
         findViewById<TextView>(R.id.scBadge).apply {
             text = lines.joinToString("\n")
             if (lines.isNotEmpty()) {
@@ -1597,8 +1806,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
 
         // Once in a while, for a great score: the judges, the emoji crowd, or both (a surprise which)
-        val extras = Extras.pick(score)
-        if (Extras.Kind.EMOJIS in extras) Extras.emojis(score).let { (set, rate) -> findViewById<ReactionsView>(R.id.scReactions).start(set, rate) }
+        val extras = Extras.pick(score, songEmojis.values.sum())
+        if (Extras.Kind.EMOJIS in extras) Extras.emojis(score, songEmojis).let { (set, rate) -> findViewById<ReactionsView>(R.id.scReactions).start(set, rate) }
         if (Extras.Kind.JUDGES in extras) showJudges(score)
 
         ui.postDelayed({
@@ -1628,7 +1837,17 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     /** Four judges hold up their paddles one after another, alternating sides. */
-    private fun showJudges(score: Int) {
+    /** The big score: "87" at full size, ".4" smaller (it's there to break ties, not to shout), then [suffix] (the hype bar's 🔥/🍅). */
+    private fun bigScore(score: Double, suffix: String = ""): CharSequence {
+        val text = scoreText(score)
+        return android.text.SpannableString(text + suffix).apply {
+            val dot = text.indexOf('.')
+            if (dot >= 0) setSpan(android.text.style.RelativeSizeSpan(0.5f), dot, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (suffix.isNotEmpty()) setSpan(android.text.style.RelativeSizeSpan(0.42f), text.length, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+    }
+
+    private fun showJudges(score: Double) {
         showJudgeColumns(true)
         val left = findViewById<LinearLayout>(R.id.scJudgesLeft)
         val right = findViewById<LinearLayout>(R.id.scJudgesRight)
@@ -2040,19 +2259,32 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     /**
      * A guest cheered: a small emoji rises along the edge of the video (no sound: the singer is
-     * singing). Secretly it's also that phone's vote: its last cheer nudges the score.
+     * singing). Secretly it's also that phone's vote: the average of its emojis pulls the score.
      */
     override fun onReaction(index: Int, owner: String) {
         if (!liveNow()) return
         val emoji = REACTIONS.getOrNull(index) ?: return
-        if (owner in votes || votes.size < MAX_VOTES) votes[owner] = REACTION_VOTES[index]
-        if (REACTION_VOTES[index] >= 0) cheers.add(queue.current?.singer)   // 😴 and 🍅 aren't cheers
-        achievements.cheered(queue.current?.singer, emoji)                   // every emoji counts for the emoji achievements
         stageReactions.cheer(emoji)
+        // The singer's own phone (the one that queued the song) only gets to see its emoji rise:
+        // no vote, no hype, no cheers or emoji achievements for cheering yourself
+        if (owner == queue.current?.owner) return
+        if (owner in votes || votes.size < MAX_VOTES) votes.getOrPut(owner) { IntArray(2) }.let { it[0] += REACTION_VOTES[index]; it[1]++ }
+        if (REACTION_VOTES[index] >= 0) cheers.add(queue.current?.singer, queue.current?.song?.title)   // 😴 and 🍅 aren't cheers
+        achievements.cheered(queue.current?.singer, emoji)                   // every emoji counts for the emoji achievements
+        songEmojis[emoji] = (songEmojis[emoji] ?: 0) + 1
+        hypeCheer(REACTION_VOTES[index] >= 0)
     }
 
-    /** This song's hidden votes: each phone's (fingerprint's) last cheer, as -2 … +2. */
-    private val votes = HashMap<String, Int>()
+    /** The score's points from the singer's reputation (past crowds), for its badge line. */
+    private var songRep = 0.0
+    /** How much the room loved this song (average vote times its say), saved with the score for ties. */
+    private var songRoom = 0.0
+
+    /** This song's hidden votes: for each phone (fingerprint), the sum of its emojis' votes and how many it sent. */
+    private val votes = HashMap<String, IntArray>()
+
+    /** How many of each emoji the phones sent during this song (lots of them: the emoji crowd shows them on the score). */
+    private val songEmojis = HashMap<String, Int>()
 
     /** Phones may cheer while a song is playing (not paused), right up to the "Big finish". */
     private fun liveNow() = mode == Mode.SINGING && (finale || (isPlaying && !isPaused))
@@ -2217,9 +2449,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
         toast(if (c.isInternational) "🌍 International mix" else "${c.flag} ${c.name}: music from there comes first")
     }
 
-    // ---- volume pop-up (the 🎵 button) ----
+    // ---- settings (the ⚙️ button): volumes, lobby music, fair queue, About ----
 
-    private fun showVolumePanel() {
+    private fun showSettings() {
         overlayReturnFocus = currentFocus
         updateVolumePanel()
         findViewById<TextView>(R.id.volumeHint).text = if (isTouch) "Drag to change" else "◀ ▶ to change"
@@ -2237,10 +2469,13 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val lobby = music.volume
         findViewById<TextView>(R.id.lobbyValue).text = if (music.enabled) "$lobby%" else "Off"
         findViewById<SeekBar>(R.id.lobbySlider).apply { progress = lobby; alpha = if (music.enabled) 1f else 0.5f }
-        findViewById<TextView>(R.id.volumeMusic).text = if (music.enabled) "🎵 Lobby music: On" else "🔈 Lobby music: Off"
+        findViewById<TextView>(R.id.volumeMusic).apply {
+            text = if (music.enabled) "🎵 Lobby music: On" else "🔈 Lobby music: Off"
+            isSelected = music.enabled
+        }
     }
 
-    private fun hideVolumePanel() {
+    private fun hideSettings() {
         volumeLayer.visibility = View.GONE
         setVolumeTo(volume)                       // save
         restoreFocus()
@@ -2424,7 +2659,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 background = boardRowBg(j % 2 == 0)
                 isFocusable = !isTouch
                 nextFocusUpId = if (j == 0) view.tab else View.NO_ID
-                contentDescription = "${medals.getOrNull(j) ?: "${j + 1}."} ${e.name}, ${e.score} points, ${shortTitle(e.song)}"
+                contentDescription = "${medals.getOrNull(j) ?: "${j + 1}."} ${e.name}, ${scoreText(e.score)} points, ${shortTitle(e.song)}"
             }
             row.id = View.generateViewId()
             row.nextFocusLeftId = row.id; row.nextFocusRightId = row.id
@@ -2434,10 +2669,11 @@ class MainActivity : Activity(), PartyBackend.Listener {
             row.addView(label(e.name, 15f, R.color.text_main, bold = true).apply { setPadding(px(10), 0, 0, 0) },
                 LinearLayout.LayoutParams(px(if (e.duet) 250 else 170), ViewGroup.LayoutParams.WRAP_CONTENT))
             row.addView(label(shortTitle(e.song), 13f, R.color.text_dim), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(label(e.score.toString(), 17f, R.color.gold, bold = true).apply { gravity = Gravity.END },
+            row.addView(label(scoreText(e.score), 17f, R.color.gold, bold = true).apply { gravity = Gravity.END },
                 LinearLayout.LayoutParams(px(60), ViewGroup.LayoutParams.WRAP_CONTENT))
             rows.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = px(2) })
         }
+        cascade(rows)
     }
 
     private fun boardHint(text: String) {
@@ -2498,6 +2734,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 LinearLayout.LayoutParams(px(64), ViewGroup.LayoutParams.WRAP_CONTENT))
             rows.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(48)).apply { bottomMargin = px(6) })
         }
+        cascade(rows)
     }
 
     private fun showSinger(name: String) {
@@ -2509,8 +2746,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         findViewById<TextView>(R.id.achAvatar).avatar(r.name)
         findViewById<TextView>(R.id.achTitle).text = "🏅 ${r.name.uppercase()}"
         findViewById<TextView>(R.id.achSub).text =
-            "$main of $total achievements  ·  $sung of ${Achievements.GENRES.size} genres  ·  ${r.songs} song${if (r.songs == 1) "" else "s"} sung" +
-                "  ·  ${if (isTouch) "swipe" else "▲▼"} to scroll"
+            "$main of $total achievements  ·  $sung of ${Achievements.GENRES.size} genres  ·  ${if (isTouch) "swipe" else "▲▼"} to scroll"
+        findViewById<TextView>(R.id.achStats).text = statsText(Stats.of(r, board.all()))
         val grid = findViewById<LinearLayout>(R.id.achGrid)
         grid.removeAllViews()
         // Unlocked first (oldest first), then the ones still to get; 5 a row so all fit on screen
@@ -2520,8 +2757,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             chunk.forEach { a ->
                 val got = r.unlocked[a.id]
+                // Height: the row's tallest tile (unlocked ones show the date as well as how they were won)
                 row.addView(achievementTile(a, got?.let { "✓ " + Achievements.dateOf(it) }),
-                    LinearLayout.LayoutParams(0, px(48), 1f).apply { setMargins(px(3), px(2), px(3), px(2)) })
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { setMargins(px(3), px(2), px(3), px(2)) })
             }
             repeat(5 - chunk.size) { row.addView(View(this), LinearLayout.LayoutParams(0, px(48), 1f).apply { setMargins(px(3), 0, px(3), 0) }) }
             grid.addView(row)
@@ -2559,17 +2797,35 @@ class MainActivity : Activity(), PartyBackend.Listener {
         findViewById<View>(R.id.achClose).requestFocus()
     }
 
-    /** One achievement: in colour with the date it was won, or faded with how to win it. */
+    /** "⭐ Best: 94 · “Song”   ❤️ Favourite: …" on one line, "🔥 3 parties in a row …" on the next. */
+    private fun statsText(s: PlayerStats): String {
+        val first = listOfNotNull(
+            s.best?.let { b -> "⭐ Best: ${scoreText(b)}" + (s.bestSong?.let { " · “${it.take(28)}”" } ?: "") },
+            s.favourite?.let { "❤️ Favourite: “${it.take(28)}”" + (if (s.favouriteTimes > 1) " (${s.favouriteTimes}×)" else "") },
+        )
+        val streak = when {
+            s.streak > 1 -> "🔥 ${s.streak} parties in a row" + (if (s.bestStreak > s.streak) " (best ${s.bestStreak})" else "")
+            s.bestStreak > 1 -> "🔥 Best run: ${s.bestStreak} parties in a row"
+            else -> null
+        }
+        val second = listOfNotNull(streak,
+            "🎤 ${s.songs} song${if (s.songs == 1) "" else "s"}",
+            "🌙 ${s.parties} part${if (s.parties == 1) "y" else "ies"}")
+        return (if (first.isEmpty()) "" else first.joinToString("     ") + "\n") + second.joinToString("     ")
+    }
+
+    /** One achievement: in colour with how it was won and the date, or faded with how to win it. */
     private fun achievementTile(a: Achievement, won: String?): View = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(px(8), px(2), px(6), px(2))
+        minimumHeight = px(48)
+        setPadding(px(8), px(3), px(6), px(3))
         background = android.graphics.drawable.GradientDrawable().apply {
             cornerRadius = px(12).toFloat()
             setColor(if (won != null) 0x33FFD23F else 0x14FFFFFF)
             setStroke(px(1), if (won != null) getColor(R.color.gold) else 0x33FFFFFF)
         }
-        contentDescription = "${a.title}: " + (won?.let { "unlocked ${it.removePrefix("✓ ")}" } ?: "locked. ${a.how}")
+        contentDescription = "${a.title}: ${a.how}. " + (won?.let { "Unlocked ${it.removePrefix("✓ ")}" } ?: "Locked")
         addView(TextView(context).apply {
             text = a.icon; textSize = 22f; gravity = Gravity.CENTER
             alpha = if (won != null) 1f else 0.35f
@@ -2581,9 +2837,11 @@ class MainActivity : Activity(), PartyBackend.Listener {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             // Short texts (see Achievements.MAX_HOW) in small type: two lines always fit the tile
             addView(label(a.title.take(Achievements.MAX_TITLE), 12f, if (won != null) R.color.text_main else R.color.text_dim, bold = true))
-            addView(label(won ?: a.how.take(Achievements.MAX_HOW), 10f, if (won != null) R.color.gold else R.color.text_dim).apply {
+            addView(label(a.how.take(Achievements.MAX_HOW), 10f, if (won != null) R.color.text_main else R.color.text_dim).apply {
                 maxLines = 2; setLineSpacing(0f, 0.92f)
+                if (won != null) alpha = 0.8f
             })
+            if (won != null) addView(label(won, 9.5f, R.color.gold, bold = true))
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
 
@@ -2608,7 +2866,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             }, LinearLayout.LayoutParams(px(46), px(46)))
             addView(label(e.name, 17f, R.color.text_main, bold = true).apply { gravity = Gravity.CENTER },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            addView(label(e.score.toString(), 26f, R.color.gold, bold = true).apply { gravity = Gravity.CENTER })
+            addView(label(scoreText(e.score), 26f, R.color.gold, bold = true).apply { gravity = Gravity.CENTER })
             addView(TextView(context).apply {
                 text = medals[place]
                 textSize = 30f
@@ -2670,14 +2928,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val unlocked = runCatching {
             achievements.singers().associate { r -> r.name to r.unlocked.values.count { it == night } }.filterValues { it > 0 }
         }.getOrDefault(emptyMap())
-        recapAwards = Recap.awards(entries, tonightsCheers, unlocked)
+        recapAwards = Recap.awards(entries, tonightsCheers, unlocked, cheers.songsTonight())
         recapTop = Recap.podium(entries)
         recapStats = Recap.stats(entries, tonightsCheers)
         overlayReturnFocus = currentFocus
         hideKeyboard()
         recapLayer.visibility = View.VISIBLE
-        recapLayer.alpha = 0f
-        recapLayer.animate().alpha(1f).setDuration(400).start()
         stageBg.animating = false             // the recap has its own stage; don't draw two
         lockFocus()
         recapGo(0)
@@ -2731,7 +2987,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     /** Fills the award card and flips it in. With a [winner], the name is revealed after a short drumroll. */
-    private fun recapCard(kicker: String, icon: String, title: String, winner: String?, detail: String) {
+    /** One recap card; [song]: the winner is a song title (a 🎵 instead of initials, smaller type). */
+    private fun recapCard(kicker: String, icon: String, title: String, winner: String?, detail: String, song: Boolean = false) {
         val gen = recapGen
         findViewById<View>(R.id.recapEnd).visibility = View.GONE
         findViewById<LinearLayout>(R.id.recapPodium).apply { removeAllViews(); visibility = View.GONE }
@@ -2775,8 +3032,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
             return
         }
         // Drumroll… then the name bursts in, in the winner's own colour, with rays and confetti
-        findViewById<TextView>(R.id.recapAvatar).avatar(winner)
-        findViewById<TextView>(R.id.recapName).apply { text = winner; setTextColor(colorFor(winner)) }
+        findViewById<TextView>(R.id.recapAvatar).apply { if (song) { text = "🎵"; background = null } else avatar(winner) }
+        findViewById<TextView>(R.id.recapName).apply {
+            text = if (song) "“$winner”" else winner
+            textSize = if (song) 36f else 50f
+            setTextColor(colorFor(winner))
+        }
         winnerRow.animate().cancel()
         winnerRow.alpha = 0f; winnerRow.scaleX = 0.4f; winnerRow.scaleY = 0.4f
         detailView.animate().cancel()
@@ -2813,7 +3074,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private fun recapAward(i: Int) {
         val a = recapAwards[i]
-        recapCard("AWARD ${i + 1} OF ${recapAwards.size}", a.icon, a.title.uppercase(), a.winner, a.detail)
+        recapCard("AWARD ${i + 1} OF ${recapAwards.size}", a.icon, a.title.uppercase(), a.winner, a.detail, song = a.song)
         ui.postDelayed(recapAuto, RECAP_REVEAL_MS + 3800)
     }
 
@@ -2859,7 +3120,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 scaleX = 1.5f; scaleY = 1.5f
                 animate().scaleX(1f).scaleY(1f).setInterpolator(OvershootInterpolator(3f)).setDuration(600).start()
             }
-            findViewById<View>(R.id.recapCard).contentDescription = "Singer of the night: ${champ.name}, ${champ.score} points"
+            findViewById<View>(R.id.recapCard).contentDescription = "Singer of the night: ${champ.name}, ${scoreText(champ.score)} points"
             rise(0, 0, big = true)
             columns[0]?.findViewWithTag<View>("crown")?.apply {
                 animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(450).setInterpolator(OvershootInterpolator(4f)).setDuration(500).start()
@@ -2881,7 +3142,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-            contentDescription = "${listOf("First", "Second", "Third")[place]} place: ${e.name}, ${e.score} points"
+            contentDescription = "${listOf("First", "Second", "Third")[place]} place: ${e.name}, ${scoreText(e.score)} points"
             addView(TextView(context).apply {
                 tag = "crown"
                 text = if (big) "👑" else ""
@@ -2895,7 +3156,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             }, LinearLayout.LayoutParams(px(if (big) 64 else 50), px(if (big) 64 else 50)))
             addView(label(e.name, if (big) 22f else 18f, R.color.text_main, bold = true).apply { gravity = Gravity.CENTER },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(4) })
-            addView(label(e.score.toString(), if (big) 32f else 26f, R.color.gold, bold = true).apply {
+            addView(label(scoreText(e.score), if (big) 32f else 26f, R.color.gold, bold = true).apply {
                 gravity = Gravity.CENTER
                 typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)
             })
@@ -3051,9 +3312,36 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun styledButton(label: String, primary: Boolean) =
         TextView(this, null, 0, if (primary) R.style.TvButton_Primary else R.style.TvButton).apply { text = label }
 
+    /**
+     * Opens a pop-up: its card slides up into place (a plain view slides up a touch).
+     *
+     * Kept cheap for the Shield: only position moves, which the GPU does without redrawing,
+     * re-measuring or re-drawing text. No fades of big layers (each one needs a full-screen
+     * off-screen buffer) and no scaling of text-heavy panels (text gets redrawn at every size).
+     */
     private fun popIn(v: View) {
-        v.alpha = 0f
-        v.animate().alpha(1f).setDuration(180).start()
+        v.animate().cancel()
+        v.alpha = 1f
+        val card = when {
+            v !is ViewGroup -> v
+            v.background != null && v.childCount > 0 -> v.getChildAt(0)
+            else -> return
+        }
+        card.animate().cancel()
+        card.translationY = px(if (card !== v) 22 else 12).toFloat()
+        card.animate().translationY(0f).setStartDelay(0).setDuration(220).setInterpolator(DecelerateInterpolator(1.8f)).start()
+    }
+
+    /** List rows slide in one after another (just the first few: the rest start off screen). */
+    private fun cascade(list: ViewGroup, max: Int = 10) {
+        for (i in 0 until minOf(max, list.childCount)) slideIn(list.getChildAt(i), i * 25L)
+    }
+
+    /** Position only (no fade), so it costs the Shield next to nothing. */
+    private fun slideIn(row: View, delay: Long = 0) {
+        row.animate().cancel()
+        row.translationX = px(28).toFloat()
+        row.animate().translationX(0f).setStartDelay(delay).setDuration(220).setInterpolator(DecelerateInterpolator(1.6f)).start()
     }
 
     private fun click(id: Int, action: () -> Unit) = findViewById<View>(id).setOnClickListener { action() }
@@ -3073,6 +3361,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
             "if(p&&p.unloadModule){p.unloadModule('captions');p.unloadModule('cc');}" +
             "if(p&&p.setOption){p.setOption('captions','track',{});}}catch(e){}})();"
         const val AUTOSTART_MS = 30_000L
+        /** The "Starting in 10…" warning: the last part of [AUTOSTART_MS]. */
+        const val AUTOSTART_WARN_MS = 10_000L
+        /** How long "Ana sings this for Bia" shows before the song. */
+        const val DEDICATION_MS = 5_000L
         /** Start a fresh YouTube player every few songs so its web page can't grow all night. */
         const val RECYCLE_PLAYER_AFTER = 6
         /** How many other versions to try when a video refuses to play. */
@@ -3097,6 +3389,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
         const val BOARD_ROWS = 50
         /** Skipping after this much of the song earns "Huh?!". */
         const val HUH_FRACTION = 0.9
+        /** How often the hype bar drains while nobody cheers. */
+        const val HYPE_TICK_MS = 500L
+        /** The special-date hello waits for the intro to finish. */
+        const val THEME_HELLO_MS = 2500L
         const val PROJECT_URL = "https://github.com/aabramos/karaoke-night/"
         val STAGE_NAMES = listOf(
             "Disco Diva", "Rock Legend", "Mystery Voice", "Mic Master", "Golden Voice", "Pop Idol",

@@ -6,17 +6,21 @@ Party karaoke for Android TV (built for the NVIDIA Shield). Also runs on Android
 
 - Karaoke-only YouTube search, with quick picks (Top hits, 80s, 90s, Duets…) and voice search
 - Song queue with a "Next up" countdown between singers
+- 💌 Dedications: type a name when adding a song (TV or phone) and the TV shows "Ana sings this for Bia" for 5 seconds before it starts
 - Guests add songs from their phones by scanning a QR code, without interrupting the singer
 - Solo and duet modes, a saved players list, and a fun score (it doesn't listen to the singer)
-- Hall of fame (solo and duets, tonight and all time), 43 achievements (scores, emojis from phones, special dates such as Christmas, Carnival and Halloween), 18 genres to collect, and a 🌙 "Close the night" awards show
+- Hall of fame (solo and duets, tonight and all time), personal stats (best score, favourite song, parties in a row), 45 achievements (scores, emojis from phones, special dates such as Christmas, Carnival and Halloween), 18 genres to collect, and a 🌙 "Close the night" awards show (with 🎶 Song of the night: the most cheered song, or the best average score)
+- ⚖️ Fair queue: nobody sings twice before everyone has sung once (on/off in ⚙️ Settings)
 - 🎲 Surprise me: a random song everyone knows
 - Party country: quick picks and search ranking for any country
-- Cheers from the phones that float up the edge of the TV
+- Cheers from the phones that float up the edge of the TV, and a secret hype bar on the left edge of the TV (no label until it fills): a room that keeps cheering fills it ("🔥 HYPE" appears, +3 points and a 🔥 on the score), a room that keeps booing empties it (-3 and a 🍅)
+- Party themes: on Christmas (24 and 25 Dec), Halloween and Carnival the stage colours and confetti dress up (snow at Christmas)
+- Quick, light transitions: pop-ups and lists slide into place, buttons grow when the remote lands on them, new songs slide into the queue (TV and phones). On the TV they only move things (no full-screen fades), so they stay cheap on the Shield, and they switch off with the system's animations
 - Bossa nova lobby music between songs, and three volume sliders: songs, sound effects, lobby music (10% by default)
 - No YouTube API key needed (an optional key makes search more reliable)
 - Keeps going when the internet or Wi-Fi drops (see [Connection problems](#connection-problems))
 
-**Scoring:** a song sung to the end scores 65 to 100. Stopping early scores 0 to 65, higher the further you got. Stopping in the first 10% gives no score.
+**Scoring:** a song sung to the end scores 65.0 to 100, about 79.5 on average. Scores have one decimal (87.4), so equal scores are rare; when two are equal, the song the room loved more ranks higher, then whoever sang first. Three quarters of songs land between 70 and 89, spread almost evenly (4.3% for a 70, sloping gently down to 3.2% for an 89), so no score comes up over and over. By band: 70 to 74 20.9%, 75 to 79 19.5%, 80 to 84 18%, 85 to 89 16.6%, 65 to 69 12%, 90 to 94 9%, 95 to 99 3.6%, and 100 0.4%, the rarest of all. Only an untouched 100 stays 100; the crowd can never push a score to 100. The room decides most of it: each phone's emojis are a hidden vote (the average of all it sent, so one busy phone counts once like the others; 😂 counts as fun, like 👏 and 🎉; the singer's own phone, the one that queued the song, doesn't count), and the votes point to a score (92 when everyone loved it, 68 when everyone booed). The random roll is pulled towards it, but only the way the room feels: love never lowers a lucky roll, boos never lift an unlucky one, and a room split exactly down the middle changes nothing. The pull is 24% of the way with one phone, 36% with two, 48% with three and 60% with four or more, less when only part of the room voted (phones with the party page open; 10 of 30 phones: 36%). The hype bar then adds or takes 3, and each singer's reputation from past crowds up to 1 (only songs with at least 2 phones voting; it grows slowly so newcomers start at 0, and follows their recent songs most). With no votes the roll stands. So a loved song averages about 87 (90+ in 1 of 5 songs, twice as often as with no votes), with a full hype bar about 90, and a booed one about 72.5. On the phones the emojis go from most points (🔥 😍) on the left to fewest (😴 🍅) on the right. Stopping early scores 0 to 65, higher the further you got. Stopping in the first 10% gives no score. A quarter of 85+ scores get the judges or the emoji crowd; above 95 the judges come out half the time; more than 50 emojis from phones always bring the emoji crowd.
 
 ## Party checklist
 
@@ -34,10 +38,9 @@ The queue is saved. If the app closes, everything is still there when it reopens
 | Lobby | 🎙 or the remote's search button | Voice search |
 | Lobby | QR card, then OK | Big code for phones |
 | Lobby | 🌍 | Party country |
-| Lobby | 🏆 | Hall of fame and achievements. ▼ scrolls a list, OK on a name shows their achievements (▲▼ scroll) |
+| Lobby | 🏆 | Hall of fame and achievements. ▼ scrolls a list, OK on a name shows their stats and achievements (▲▼ scroll) |
 | Lobby | 🌙 | Close the night: awards show (OK next, ◀ back, BACK leave) |
-| Lobby | 🎵 | Volume sliders, lobby music on/off |
-| Lobby | ℹ️ | About |
+| Lobby | ⚙️ | Settings: volume sliders, lobby music on/off, fair queue on/off ("Sing next" and "later" still work), About. ▼ from the last slider goes to the right-hand column |
 | Lobby | BACK twice | Exit |
 | Who's singing? | | Mode (Solo/Duet), pick players (OK again un-picks), ‹ › more, 🎲 Random name, type a new player, 🗑 Remove. Then **Sing now!** or **Add to queue** |
 | Next up | OK / ▶ / BACK | Start now / move singer to the end / back to the lobby |
@@ -47,14 +50,14 @@ The queue is saved. If the app closes, everything is still there when it reopens
 | Singing | BACK | Menu: keep singing, score me, skip, lobby |
 | Score | OK | Continue (it also continues by itself) |
 
-If songs are queued and nobody touches the remote for 30 seconds, the party starts by itself.
+If songs are queued and nobody touches the remote for 30 seconds, the party starts by itself. A "Starting in 10…" message comes first: press any button (or tap the screen) to wait, and it holds until the queue changes or you press ▶ START.
 On a touchscreen, tap instead: the video opens a controls bar, and pop-ups have a **← Back** button.
 
 ## Guests' phones
 
-Guests scan the QR code (same Wi-Fi as the TV), enter their name once, search, and tap **+**.
+Guests scan the QR code (same Wi-Fi as the TV), pick who's singing (like on the TV: Solo or Duet, tap a name, type a new one or 🎲), search, and tap **+**. The choice is remembered on the phone.
 
-From the top, the page shows: who's singing (with cheer buttons during a song), tonight's top 3, the queue, their name, and the search. A **🔍 Add a song** button jumps to the search. After adding, the phone says your place in line. A phone can remove only its own waiting songs (✕, then confirm). Only the TV can remove players.
+From the top, the page shows: who's singing (with cheer buttons during a song), tonight's top 3, the queue, who's singing, and the search. A **🔍 Add a song** button jumps to the search. After adding, the phone says your place in line; added the wrong song? Tap its ✓ (then **Undo?**). A phone can remove only its own waiting songs (✕, then confirm). The phone's screen stays on while the page is open. When your song is next, a banner pops up (and the phone buzzes): "You're up next!", then "It's your turn!". Only the TV can remove players.
 
 Guest Wi-Fi networks often block devices from seeing each other. If the page won't open, use the main network.
 
@@ -111,10 +114,12 @@ Requirements: Android Gradle Plugin 9.5, Gradle 9.6, JDK 17. Min Android 7.0.
 
 | What | Where |
 |---|---|
-| Score range and spread | `Scores.kt`, `Judge` |
-| How much cheers move the score | `Scores.kt`, `Judge.CROWD_POINTS`, and `Party.kt`, `REACTION_VOTES` |
+| Score range and spread | `Scores.kt`, `Judge.ODDS` |
+| How much cheers move the score | `Scores.kt`, `Judge.CROWD_MAX`, and `Party.kt`, `REACTION_VOTES` |
 | Judge comments | `Scores.kt`, `Judge.lines` |
-| Rare judges and emoji crowd | `Scores.kt`, `Extras.CHANCE` and `MIN_SCORE` |
+| Rare judges and emoji crowd | `Scores.kt`, `Extras.CHANCE`, `MIN_SCORE`, `TOP_JUDGES`, `CROWD_EMOJIS` |
+| Hype bar (how fast it fills and drains, bonus) | `Scores.kt`, `Hype.PER_CHEER`, `DRAIN_PER_S`, `BONUS` |
+| Party themes (colours, dates) | `Views.kt`, `PartyTheme` |
 | Quick picks | `Countries.kt`, `INTERNATIONAL_PICKS` and `HAND` |
 | Surprise me songs | `Surprise.kt`, `WORLD` and `LOCAL` |
 | Achievements | `Achievements.kt` |

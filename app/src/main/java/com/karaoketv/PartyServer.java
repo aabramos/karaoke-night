@@ -39,8 +39,9 @@ public final class PartyServer {
          * Adds a song. [partner]: second singer for a duet, or null/empty for a solo. [phone]: the
          * phone's own random ID, which lets that phone (and only that one) remove the song later.
          * [from]: the search or quick pick that found the song (it helps tell the genre).
+         * [forWho]: an optional dedication ("for Bia").
          */
-        Added add(String videoId, String singer, String partner, String phone, String from);
+        Added add(String videoId, String singer, String partner, String phone, String from, String forWho);
         /** Removes a waiting song this phone added; returns null on success or a short message. */
         String remove(String key, String phone);
         /** A cheer from a phone while someone sings ([emoji]: its number); null on success or a short message. */
@@ -77,6 +78,9 @@ public final class PartyServer {
     private final byte[] token;
     private final byte[] page;
     private final Map<String, ArrayDeque<Long>> hits = new HashMap<>();
+    /** When each phone (by address) last asked for an update: who has the party page open. */
+    private final Map<String, Long> seen = new HashMap<>();
+    private static final long SEEN_MS = 60_000;
 
     private volatile ServerSocket server;
     private boolean stopped;
@@ -207,6 +211,7 @@ public final class PartyServer {
             if (method.equals("GET") && (path.equals("/") || path.equals("/index.html"))) {
                 sendBytes(out, 200, "text/html; charset=utf-8", page, true);
             } else if (method.equals("GET") && path.equals("/api/state")) {
+                synchronized (seen) { if (seen.size() < 300 || seen.containsKey(ip)) seen.put(ip, System.currentTimeMillis()); }
                 send(out, 200, "application/json; charset=utf-8", b.stateJson());
             } else if (method.equals("GET") && path.equals("/api/search")) {
                 String q = params.get("q");
@@ -257,7 +262,7 @@ public final class PartyServer {
                 if (!allow("a" + ip, 8)) {
                     send(out, 429, "application/json", "{\"error\":\"Too many songs at once! Wait a minute.\"}");
                 } else {
-                    Added r = b.add(params.get("id"), params.get("singer"), params.get("partner"), params.get("phone"), params.get("from"));
+                    Added r = b.add(params.get("id"), params.get("singer"), params.get("partner"), params.get("phone"), params.get("from"), params.get("for"));
                     send(out, r.error == null ? 200 : 400, "application/json; charset=utf-8",
                             r.error == null ? "{\"ok\":true,\"key\":" + r.key + "}" : "{\"error\":" + jsonString(r.error) + "}");
                 }
@@ -279,6 +284,18 @@ public final class PartyServer {
             catch (IOException | RuntimeException ignored) { }
         } finally {
             closeQuietly(s);
+        }
+    }
+
+    /**
+     * How many phones have the party page open right now: they ask for updates every few seconds
+     * while it's on screen (none while locked or in another app), so "seen in the last minute".
+     */
+    public int phonesNow() {
+        long now = System.currentTimeMillis();
+        synchronized (seen) {
+            seen.values().removeIf(t -> now - t > SEEN_MS);
+            return seen.size();
         }
     }
 
@@ -378,7 +395,7 @@ public final class PartyServer {
                 .append("X-Frame-Options: DENY\r\n");
         if (isPage) {
             h.append("Content-Security-Policy: default-src 'none'; connect-src 'self'; ")
-                    .append("img-src https://i.ytimg.com; style-src 'unsafe-inline'; ")
+                    .append("img-src https://i.ytimg.com; media-src data:; style-src 'unsafe-inline'; ")
                     .append("script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\r\n");
         }
         h.append("\r\n");

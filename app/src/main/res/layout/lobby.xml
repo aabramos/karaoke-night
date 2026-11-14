@@ -88,19 +88,13 @@
             android:contentDescription="Close the night: tonight's awards"
             android:text="🌙" />
 
+        <!-- Settings: volumes, lobby music, fair queue, About -->
         <TextView
-            android:id="@+id/btnMusic"
+            android:id="@+id/btnSettings"
             style="@style/IconButton"
             android:layout_marginStart="8dp"
-            android:contentDescription="Volume and lobby music"
-            android:text="🎵" />
-
-        <TextView
-            android:id="@+id/btnAbout"
-            style="@style/IconButton"
-            android:layout_marginStart="8dp"
-            android:contentDescription="About this app"
-            android:text="ℹ️" />
+            android:contentDescription="Settings: volume, lobby music, fair queue and About"
+            android:text="⚙️" />
     </LinearLayout>
 
     <HorizontalScrollView

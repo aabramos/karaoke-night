@@ -178,6 +178,24 @@
                 android:text="🗑 Remove" />
         </LinearLayout>
 
+        <!-- Optional: who it's for (shown on the TV just before the song) -->
+        <EditText
+            android:id="@+id/pickerFor"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/field_bg"
+            android:hint="💌 Dedicate it to… (optional)"
+            android:imeOptions="actionDone|flagNoExtractUi"
+            android:importantForAutofill="no"
+            android:inputType="textPersonName|textCapWords"
+            android:maxLength="20"
+            android:maxLines="1"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:textColor="@color/text_main"
+            android:textSize="15sp" />
+
         <!-- 3. Who's chosen, and go -->
         <View
             android:layout_width="match_parent"

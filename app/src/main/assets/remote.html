@@ -21,7 +21,15 @@ h2{font-size:13px;letter-spacing:.2em;color:var(--cyan);margin:22px 0 8px}
 input{-webkit-appearance:none;appearance:none;width:100%;background:var(--card2);border:2px solid var(--line);color:#fff;border-radius:999px;padding:12px 18px;font-size:16px;outline:none}
 input:focus{border-color:var(--cyan)}
 input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
-.partner{margin-top:8px}
+.seg{display:flex;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:999px;padding:4px}
+.seg button{flex:1;border:0;border-radius:999px;background:none;color:var(--dim);font-weight:800;font-size:15px;min-height:42px}
+.seg button[aria-pressed=true]{background:var(--pink);color:#fff}
+.newp{margin-top:10px}
+.forwho{margin-top:10px}
+.newp .btn{flex:none;width:52px;padding:0;font-size:22px}
+.picksum{margin:10px 4px 0;font-weight:800;font-size:16px}
+.picksum.none{color:var(--dim);font-weight:600}
+.picksum.need{color:var(--pink);animation:nudge .4s}
 .row{display:flex;gap:8px}
 .btn{border:0;border-radius:999px;background:var(--pink);color:#fff;font-weight:800;padding:0 18px;font-size:16px;min-height:46px}
 .btn:active{transform:scale(.96)}
@@ -34,7 +42,15 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .res .t b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px}
 .res .t small{color:var(--cyan);font-size:12px}
 .add{flex:none;width:46px;height:46px;border-radius:50%;border:0;background:var(--pink);color:#fff;font-size:26px;font-weight:900}
-.add.done{background:#2b8a4b}
+.add.done{background:#2b8a4b;animation:pop .35s ease-out}
+.add,.chip,.rm{transition:transform .12s,background-color .15s,border-color .15s,box-shadow .15s}
+.add:active,.chip:active,.rm:active{transform:scale(.92)}
+@keyframes pop{40%{transform:scale(1.25)}}
+.res{animation:rise .3s ease-out both}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}}
+.q.new{animation:slidein .4s ease-out both}
+@keyframes slidein{from{opacity:0;transform:translateX(28px)}}
+.add.sure{width:auto;min-width:46px;padding:0 12px;border-radius:999px;font-size:14px;background:#ff5a6e}
 .q{display:flex;gap:10px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--line)}
 .q:last-child{border:0}
 .n{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:900;font-size:14px;color:#0b0614}
@@ -56,6 +72,13 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 #toast{bottom:calc(84px + env(safe-area-inset-bottom));width:max-content;box-sizing:border-box}
 /* can't reach the TV */
 #net{position:sticky;top:0;z-index:6;margin:-16px -16px 10px;padding:10px 16px;background:#ff5a6e;color:#fff;font-weight:800;font-size:14px;text-align:center}
+#upnext{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;margin:-4px 0 12px;padding:12px 14px;border-radius:16px;background:linear-gradient(135deg,var(--pink),#8a3dff);color:#fff;box-shadow:0 8px 26px rgba(255,46,151,.45);animation:upbump 1.2s ease-in-out 3}
+#upnext[hidden]{display:none}
+#upnext .t{flex:1;min-width:0}
+#upnext b{display:block;font-size:18px;font-weight:900}
+#upnext small{display:block;font-size:13px;opacity:.92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#upnext button{flex:none;border:0;border-radius:999px;background:rgba(255,255,255,.22);color:#fff;font-weight:800;font-size:14px;min-height:40px;padding:0 14px}
+@keyframes upbump{0%,100%{transform:scale(1)}50%{transform:scale(1.03)}}
 #tvnet{margin:-4px 0 12px;padding:10px 14px;border-radius:14px;background:#4a3a0c;border:1px solid var(--gold);color:#ffe9a8;font-size:14px;font-weight:700;text-align:center}
 #netRetry{margin-left:6px;border:2px solid #fff;background:none;color:#fff;font-weight:800;border-radius:999px;padding:4px 12px;min-height:34px}
 /* the name box asks for attention when a song is added without a name */
@@ -92,7 +115,7 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
 @keyframes lead{0%{transform:scale(.85)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
 .topnote{margin-top:8px;font-size:13px;color:var(--dim);text-align:center}
 .btn:focus-visible,.chip:focus-visible,.add:focus-visible,.rm:focus-visible,.qmore:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}
-@media (prefers-reduced-motion:reduce){.now .mic,.pod.lead,.res.pick,.dice .roll,.cbar i.wait,input.need{animation:none}#fab{transition:none}.fly{display:none}#toast{transition:none}.btn:active,.cbtns button:active{transform:none}}
+@media (prefers-reduced-motion:reduce){.now .mic,.pod.lead,.res.pick,.dice .roll,.cbar i.wait,input.need,.picksum.need{animation:none}#fab{transition:none}.fly{display:none}#toast{transition:none}.btn:active,.cbtns button:active{transform:none}.res,.q.new,.add.done{animation:none}.add,.chip,.rm{transition:none}.add:active,.chip:active,.rm:active{transform:none}}
 .spin{display:inline-block;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
 /* cheers while someone sings: one tap, then a short wait (the bar refills) */
 .cheer{margin-top:8px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 12px}
@@ -122,6 +145,7 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
 <body>
 <div id="net" role="alert" hidden><span id="netMsg"></span> <button type="button" id="netRetry">Try again</button></div>
 <h1>🎤 KARAOKE <span>NIGHT</span></h1>
+<div id="upnext" role="alert" hidden><div class="t"><b id="upHead"></b><small id="upSong"></small></div><button type="button" id="upOk">OK</button></div>
 <div id="tvnet" role="status" hidden>📡 The TV has lost its internet. Songs play again as soon as it's back; your place in line is kept.</div>
 
 <div class="card now"><div class="mic">🎤</div><div><b id="nowSinger">Waiting for the first singer…</b><small id="nowSong">Pick a song below!</small></div></div>
@@ -139,11 +163,18 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
 <h2>UP NEXT</h2>
 <div class="card" id="queue"><div class="muted">The queue is empty.</div></div>
 
-<h2>YOUR NAME</h2>
-<input id="name" maxlength="20" placeholder="Who's singing?" autocomplete="nickname" aria-label="Your name">
-<input id="partner" class="partner" maxlength="20" placeholder="👫 Duet partner (optional)" autocomplete="off" aria-label="Duet partner, optional">
+<h2>WHO'S SINGING?</h2>
+<div class="seg" role="group" aria-label="Solo or duet">
+  <button type="button" id="mSolo" aria-pressed="true">🎤 Solo</button><button type="button" id="mDuet" aria-pressed="false">👫 Duet</button>
+</div>
 <div class="players" id="players"></div>
 <div class="phint" id="phint" hidden></div>
+<form class="row newp" id="newp">
+  <input id="name" maxlength="20" placeholder="＋ New player…" autocomplete="nickname" enterkeyhint="done" aria-label="New player: type a name">
+  <button type="button" class="btn ghost" id="pRandom" aria-label="Random stage name">🎲</button>
+</form>
+<div class="picksum" id="pickSum" aria-live="polite"></div>
+<input id="forWho" class="forwho" maxlength="20" placeholder="💌 Dedicate it to… (optional)" autocomplete="off" aria-label="Dedicate the song to someone, optional">
 <div class="saved" id="saved" aria-hidden="true">✓ Saved on this phone for your next songs</div>
 
 <h2 id="findTitle">FIND A SONG</h2>
@@ -161,51 +192,113 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
   var ID = /^[A-Za-z0-9_-]{11}$/;
   var COLORS = ['#ff3da5','#2ee6ff','#ffd23f','#7cff6b','#b36bff','#ff8a3d'];
   var $ = function(id){ return document.getElementById(id); };
-  var nameEl = $('name');
-  try { nameEl.value = localStorage.getItem('singer') || ''; } catch(e) {}
-  nameEl.addEventListener('input', function(){ try { localStorage.setItem('singer', nameEl.value.trim()); } catch(e) {} });
-
-  // ---- registered players: tap a name to fill the box being typed in ----
+  // ---- who's singing: like the TV's picker. Solo or duet, tap players to pick them (tap again to
+  // un-pick), or type a new one, or 🎲 a random stage name. Remembered on this phone. ----
   // Only the TV can remove players. With many players, the most recent ones show first and
-  // typing filters the list, so it never becomes a wall of names.
-  var partnerEl = $('partner');
-  var target = nameEl;                       // the box a tapped name goes into: the last one used
+  // typing in the box filters the list, so it never becomes a wall of names.
+  var nameEl = $('name');                    // the "new player" box (also filters the list)
   var players = [], playersKey = '';
   var SHOWN = 12;
-  nameEl.addEventListener('focus', function(){ target = nameEl; renderPlayers(); });
-  partnerEl.addEventListener('focus', function(){ target = partnerEl; renderPlayers(); });
+  var STAGE_NAMES = ['Disco Diva','Rock Legend','Mystery Voice','Mic Master','Golden Voice','Pop Idol','Shower Singer',
+    'Night Owl','Velvet Voice','Funky Star','Karaoke King','Karaoke Queen','Rockstar','Dancing Queen','Soul Sister','Mr. Groove'];
+  var duet = false, chosen = [];             // chosen: one name (solo) or up to two (duet)
+  try {
+    duet = localStorage.getItem('duet') === '1';
+    chosen = [localStorage.getItem('singer') || '', localStorage.getItem('partner') || '']
+      .map(function(n){ return n.trim().slice(0, 20); }).filter(function(n){ return n; });
+  } catch(e) {}
+  if (!duet) chosen = chosen.slice(0, 1);
+  function whoAmI(){ return (chosen[0] || '').toLowerCase(); }
+  function savePick(){
+    try {
+      localStorage.setItem('singer', chosen[0] || ''); localStorage.setItem('partner', chosen[1] || '');
+      localStorage.setItem('duet', duet ? '1' : '0');
+    } catch(e) {}
+  }
+  // A name typed in the box but not confirmed counts when a song is added: it's who's singing (or
+  // the partner, in a duet). Unless it's only the start of a player's name (typed to find them).
+  function takeTyped(){
+    var typed = nameEl.value.trim(), low = typed.toLowerCase();
+    if (!typed) return;
+    var exact = players.some(function(p){ return p.toLowerCase() === low; });
+    var partOf = players.some(function(p){ return p.toLowerCase() !== low && p.toLowerCase().indexOf(low) === 0; });
+    if (partOf && !exact) return;
+    if (exact) typed = players.filter(function(p){ return p.toLowerCase() === low; })[0];   // their usual spelling
+    nameEl.value = '';
+    if (chosen.map(function(n){ return n.toLowerCase(); }).indexOf(low) >= 0) return;   // already picked
+    if (!duet) chosen = [];
+    choose(typed);
+  }
+  function picked(){                           // after any change: redraw what depends on "me"
+    savePick(); renderPlayers(); showSaved();
+    // (also runs once while the page is still starting, before the first update: hence the checks)
+    if (topKey != null) { justLed = false; renderTop(); }
+    if (queueNow && queueNow.length) renderQueue();
+  }
+  function choose(name){
+    name = name.trim().slice(0, 20);
+    if (!name) return;
+    var i = chosen.map(function(n){ return n.toLowerCase(); }).indexOf(name.toLowerCase());
+    if (i >= 0) chosen.splice(i, 1);                       // tap again: un-pick
+    else if (!duet) chosen = [name];
+    else if (chosen.length < 2) chosen.push(name);
+    else chosen[1] = name;                                  // a third pick replaces the partner
+    $('pickSum').classList.remove('need');
+    picked();
+  }
+  function setMode(d){
+    duet = d;
+    if (!duet) chosen = chosen.slice(0, 1);
+    $('mSolo').setAttribute('aria-pressed', String(!duet)); $('mDuet').setAttribute('aria-pressed', String(duet));
+    picked();
+  }
+  $('mSolo').onclick = function(){ setMode(false); };
+  $('mDuet').onclick = function(){ setMode(true); };
+  // A new player: type and press Done (or Enter)
+  $('newp').onsubmit = function(e){
+    e.preventDefault();
+    var n = nameEl.value.trim(), same = players.filter(function(p){ return p.toLowerCase() === n.toLowerCase(); })[0];
+    nameEl.value = ''; choose(same || n); nameEl.blur();
+  };
+  nameEl.addEventListener('input', renderPlayers);
+  $('pRandom').onclick = function(){
+    var taken = players.concat(chosen).map(function(n){ return n.toLowerCase(); });
+    var free = STAGE_NAMES.filter(function(n){ return taken.indexOf(n.toLowerCase()) < 0; });
+    choose(free.length ? free[Math.floor(Math.random() * free.length)] : 'Mystery Singer ' + (2 + Math.floor(Math.random() * 97)));
+  };
 
   function renderPlayers(){
     var box = $('players'); box.textContent = '';
-    var typed = target.value.trim().toLowerCase();
-    var chosen = [nameEl.value.trim().toLowerCase(), partnerEl.value.trim().toLowerCase()];
-    var list = players;
-    var exact = players.some(function(p){ return p.toLowerCase() === typed; });
-    if (typed && !exact) {
+    var typed = nameEl.value.trim().toLowerCase();
+    var lower = chosen.map(function(n){ return n.toLowerCase(); });
+    // Picked names always show (even new ones the TV doesn't know yet), then the TV's players
+    var all = chosen.concat(players.filter(function(p){ return lower.indexOf(p.toLowerCase()) < 0; }));
+    var list = all;
+    if (typed) {
       // typing: names that start with it first, then names that contain it
-      var starts = players.filter(function(p){ return p.toLowerCase().indexOf(typed) === 0; });
-      var has = players.filter(function(p){ var i = p.toLowerCase().indexOf(typed); return i > 0; });
+      var starts = all.filter(function(p){ return p.toLowerCase().indexOf(typed) === 0; });
+      var has = all.filter(function(p){ return p.toLowerCase().indexOf(typed) > 0; });
       list = starts.concat(has);
     }
     list.slice(0, SHOWN).forEach(function(name){
-      var c = el('button', 'chip', name);
-      c.type = 'button';
-      if (chosen.indexOf(name.toLowerCase()) >= 0) { c.classList.add('on'); c.setAttribute('aria-pressed','true'); }
-      c.onclick = function(){
-        target.value = name;
-        if (target === nameEl) { try { localStorage.setItem('singer', name); } catch(e) {} }
-        renderPlayers();
-      };
+      var on = lower.indexOf(name.toLowerCase()) >= 0;
+      var c = el('button', 'chip' + (on ? ' on' : ''), (on ? '✓ ' : '') + name);
+      c.type = 'button'; c.setAttribute('aria-pressed', String(on));
+      c.onclick = function(){ nameEl.value = ''; choose(name); };
       box.appendChild(c);
     });
     var hint = $('phint');
-    hint.hidden = players.length === 0;
-    hint.textContent = typed && !list.length ? 'New singer? Just type your name.'
-      : list.length > SHOWN ? 'Tap a name to fill the box above · type to find more (' + players.length + ' players)'
-      : 'Tap a name to fill the box above';
+    hint.hidden = all.length === 0 && !typed;
+    hint.textContent = typed && !list.length ? 'New singer? Press Done to add “' + nameEl.value.trim() + '”.'
+      : list.length > SHOWN ? 'Tap a name to pick it · type below to find more (' + all.length + ' players)'
+      : duet ? 'Tap two names for the duet' : 'Tap your name to pick it';
+    var p = $('pickSum');
+    p.classList.toggle('none', !chosen.length || (duet && chosen.length < 2));
+    p.textContent = !chosen.length ? (duet ? 'Pick two players 👫' : 'Pick who\'s singing 🎤')
+      : duet ? (chosen.length < 2 ? '👫 ' + chosen[0] + ' & … pick a partner' : '👫 Duet: ' + chosen[0] + ' & ' + chosen[1])
+      : '🎤 Singing: ' + chosen[0];
   }
-  partnerEl.addEventListener('input', renderPlayers);
-  nameEl.addEventListener('input', renderPlayers);
+  setMode(duet);
 
   function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function color(s){ var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return COLORS[Math.abs(h) % COLORS.length]; }
@@ -300,7 +393,7 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
         if (pick != null) { var a0 = el('button','btn ghost again','🎲 Roll again'); a0.type = 'button'; a0.onclick = surprise; box.appendChild(a0); }
         return;
       }
-      var n = 0;
+      var n = 0, n2 = 0;
       list.forEach(function(v){
         if (!ID.test(v.id)) return;
         var first = pick != null && n++ === 0;
@@ -311,10 +404,11 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
           setTimeout(function(){ try { h.scrollIntoView({ behavior: rm ? 'auto' : 'smooth', block: 'start' }); } catch(e) {} }, 0);
         }
         var r = el('div','res' + (first ? ' pick' : ''));
+        r.style.animationDelay = Math.min(n2++, 6) * 40 + 'ms';
         var img = el('img'); img.loading = 'lazy'; img.alt = ''; img.onerror = function(){ this.style.visibility = 'hidden'; }; img.src = 'https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg';
         var t = el('div','t'); t.appendChild(el('b',null,v.title)); t.appendChild(el('small',null,[v.channel, v.dur, v.views].filter(function(x){ return x; }).join(' · ')));
         var b = el('button','add','+'); b.setAttribute('aria-label','Add ' + v.title + ' to the queue');
-        b.onclick = function(){ add(v, b); };
+        b.onclick = function(){ tapAdd(v, b); };
         r.appendChild(img); r.appendChild(t); r.appendChild(b); box.appendChild(r);
         if (first) {
           var again = el('button','btn ghost again','🎲 Roll again'); again.type = 'button'; again.onclick = surprise; box.appendChild(again);
@@ -324,24 +418,27 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
   }
 
   function add(v, btn){
-    var singer = nameEl.value.trim();
-    var partner = $('partner').value.trim();
-    if (!singer) { askName(); return; }
+    takeTyped();
+    var singer = chosen[0] || '';
+    var partner = duet ? (chosen[1] || '') : '';
+    if (!singer || (duet && !partner)) { askName(); return; }
     btn.disabled = true;
     api('/api/add', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
       body:'id=' + encodeURIComponent(v.id) + '&singer=' + encodeURIComponent(singer) + '&partner=' + encodeURIComponent(partner) +
+        '&for=' + encodeURIComponent($('forWho').value.trim()) +
         '&phone=' + PHONE + '&from=' + encodeURIComponent(lastFrom.slice(0, 80)) })
       .then(function(r){
         if (r && typeof r.key === 'number') rememberMine(r.key);
-        btn.textContent = '✓'; btn.classList.add('done'); btn.setAttribute('aria-label', 'Added');
+        btn.textContent = '✓'; btn.classList.add('done'); btn.disabled = false;
+        btn.setAttribute('aria-label', 'Added. Tap to take it back');
         if (r && typeof r.key === 'number') addedBtns[r.key] = { btn: btn, title: v.title, seen: false, at: Date.now() };
         var who = singer + (partner ? ' & ' + partner : '');
-        $('partner').value = '';   // the next song is a solo unless a partner is typed again
+        $('forWho').value = '';    // a dedication is for one song
         refresh().then(function(){
           // Where in line? (the queue just refreshed)
           var at = -1;
           for (var i = 0; i < queueNow.length; i++) if (queueNow[i].k === r.key) { at = i + 1; break; }
-          toast(at > 0 ? '🎉 Added! ' + who + ', you\'re #' + at + ' in line' : '🎉 Added! Get ready, ' + who + '!');
+          toast((at > 0 ? '🎉 Added! ' + who + ', you\'re #' + at + ' in line' : '🎉 Added! Get ready, ' + who + '!') + ' · Wrong? Tap ✓');
         }); })
       .catch(function(e){ btn.disabled = false; toast(e.message); });
   }
@@ -376,7 +473,7 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
       if (inQueue) { a.seen = true; return; }
       // Not in the list: free it once it had been there, if it was removed here, or if it never showed up
       if (!(a.seen || key === gone || Date.now() - a.at > 15000)) return;
-      a.btn.textContent = '+'; a.btn.classList.remove('done'); a.btn.disabled = false;
+      a.btn.textContent = '+'; a.btn.classList.remove('done', 'sure'); a.btn.disabled = false;
       a.btn.setAttribute('aria-label', 'Add ' + a.title + ' to the queue');
       delete addedBtns[k];
     });
@@ -384,17 +481,21 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
   var QUEUE_SHOWN = 5;                       // a long queue shows the next 5 (plus your own songs) until "Show all"
 
   // ✕ asks "Remove?" first; a second tap within a few seconds removes the song
+  var seenQ = null;                          // songs already on screen: only new ones slide in
   function renderQueue(){
     freeAdded(null);
+    var prevQ = seenQ; seenQ = {};
+    queueNow.forEach(function(it){ seenQ[it.k] = 1; });
     var q = $('queue'); q.textContent = '';
     if (!queueNow.length) { q.appendChild(el('div','muted','The queue is empty. Be the first! 🎤')); return; }
-    var me = nameEl.value.trim().toLowerCase(), anyMine = false, hidden = 0;
+    var me = whoAmI(), anyMine = false, hidden = 0;
     queueNow.forEach(function(it, i){
       var own = typeof it.k === 'number' && mine.indexOf(it.k) >= 0;
       if (!queueOpen && i >= QUEUE_SHOWN && !own && !(me && it.singer.toLowerCase() === me)) { hidden++; return; }
-      var row = el('div','q' + (me && it.singer.toLowerCase() === me ? ' me' : ''));
+      var row = el('div','q' + (me && it.singer.toLowerCase() === me ? ' me' : '') + (prevQ && !prevQ[it.k] ? ' new' : ''));
       var n = el('div','n', String(i + 1)); n.style.background = color(it.singer);
-      var t = el('div','t'); t.appendChild(el('b',null,it.singer)); t.appendChild(el('small',null,it.title));
+      var t = el('div','t'); t.appendChild(el('b',null,it.singer));
+      t.appendChild(el('small',null,it.title + (typeof it['for'] === 'string' && it['for'] ? ' · 💌 for ' + it['for'] : '')));
       row.appendChild(n); row.appendChild(t);
       if (typeof it.k === 'number' && mine.indexOf(it.k) >= 0) {
         anyMine = true;
@@ -419,6 +520,23 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
     sureTimer = setTimeout(function(){ sureKey = null; renderQueue(); }, 4000);
     renderQueue();
   }
+  // Tapping the ✓ of a song just added: "Undo?", and a second tap takes it back out of the queue
+  function tapAdd(v, btn){
+    var key = null;
+    Object.keys(addedBtns).forEach(function(k){ if (addedBtns[k].btn === btn) key = +k; });
+    if (key === null) { add(v, btn); return; }
+    if (btn.classList.contains('sure')) {
+      clearTimeout(btn.undoTimer);
+      removeSong({ k: key, title: v.title }, btn);
+      return;
+    }
+    btn.textContent = 'Undo?'; btn.classList.add('sure');
+    btn.setAttribute('aria-label', 'Tap again to take ' + v.title + ' out of the queue');
+    btn.undoTimer = setTimeout(function(){
+      if (!addedBtns[key]) return;
+      btn.textContent = '✓'; btn.classList.remove('sure'); btn.setAttribute('aria-label', 'Added. Tap to take it back');
+    }, 4000);
+  }
   function removeSong(it, b){
     b.disabled = true; clearTimeout(sureTimer); sureKey = null;
     api('/api/remove', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
@@ -430,7 +548,10 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
         queueNow = queueNow.filter(function(x){ return x.k !== it.k; }); freeAdded(it.k); renderQueue();
         refresh();
       })
-      .catch(function(e){ toast(e.message); renderQueue(); });
+      .catch(function(e){
+        toast(e.message); renderQueue();
+        if (b.classList.contains('add')) { b.disabled = false; b.textContent = '✓'; b.classList.remove('sure'); }
+      });
   }
 
   // ---- tonight's top 3 (best score per singer), with the best duet underneath ----
@@ -441,7 +562,7 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
       box.appendChild(el('div','muted','No scores yet tonight. The first song takes the crown 👑'));
       return;
     }
-    var me = nameEl.value.trim().toLowerCase();
+    var me = whoAmI();
     var medals = ['🥇','🥈','🥉'], places = ['1st','2nd','3rd'];
     var pod = el('div','podium');
     for (var i = 0; i < 3; i++) {
@@ -489,7 +610,7 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
     var newLeader = list.length ? list[0].name : null;
     justLed = !first && newLeader !== null && newLeader !== leader;
     if (justLed) {
-      var me = nameEl.value.trim().toLowerCase();
+      var me = whoAmI();
       toast(newLeader.toLowerCase() === me ? '👑 You\'re #1 tonight!' : '👑 ' + newLeader + ' takes the lead with ' + list[0].score + '!');
     }
     top = list; duetBest = duet; leader = newLeader; topKey = key;
@@ -545,14 +666,14 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
     if (focus) setTimeout(function(){ try { focus.focus({ preventScroll: true }); } catch(e) { focus.focus(); } }, rm ? 0 : 350);
   }
   function askName(){
-    toast('First, type your name 👇');
-    nameEl.classList.remove('need'); void nameEl.offsetWidth; nameEl.classList.add('need');
-    goTo(nameEl, nameEl);
+    var sum = $('pickSum');
+    toast(duet && chosen.length === 1 ? 'Pick a partner for the duet 👫' : 'First, pick who\'s singing 👇');
+    sum.classList.remove('need'); void sum.offsetWidth; sum.classList.add('need');
+    goTo($('players'), players.length ? null : nameEl);
   }
-  nameEl.addEventListener('input', function(){ nameEl.classList.remove('need'); });
   // "🔍 Add a song": shown while the search box is off screen; takes you to it (or to the name box first)
   var fab = $('fab');
-  fab.onclick = function(){ if (!nameEl.value.trim()) askName(); else goTo($('sf'), $('q')); };
+  fab.onclick = function(){ takeTyped(); if (!chosen.length || (duet && chosen.length < 2)) askName(); else goTo($('sf'), $('q')); };
   // Only while the search is still further down the page (not over the search results)
   var fabTick = false;
   function placeFab(){
@@ -564,9 +685,36 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
   setTimeout(placeFab, 0);
   // A saved name says so, so guests know they don't have to type it again
   // (it always keeps its space, so the page never jumps under a finger)
-  function showSaved(){ $('saved').classList.toggle('off', !nameEl.value.trim() || document.activeElement === nameEl); }
-  nameEl.addEventListener('blur', showSaved); nameEl.addEventListener('focus', showSaved);
+  function showSaved(){ $('saved').classList.toggle('off', !chosen.length); }
   setTimeout(showSaved, 0);
+
+  // ---- "You're up next!": a banner (and a buzz) when this phone's singer is next, or on ----
+  // It's this phone's song if this phone added it, or if the singer's name is the name typed here.
+  var upKey = null, upDismissed = null, baseTitle = document.title;
+  function forMe(it){
+    if (typeof it.k === 'number' && mine.indexOf(it.k) >= 0) return true;
+    var me = whoAmI();
+    return !!me && it.singer.toLowerCase().split(' & ').indexOf(me) >= 0;
+  }
+  function updateUpNext(now, next){
+    var st = null;
+    if (now && forMe(now)) st = { key: 'on' + (now.k || now.title), head: '🎤 ' + now.singer + ', it\'s your turn!', song: 'Grab the mic: ' + now.title };
+    else if (next && forMe(next)) st = { key: 'next' + next.k, head: '⏭ ' + next.singer + ', you\'re up next!', song: 'Get ready: ' + next.title };
+    var box = $('upnext');
+    if (!st || st.key === upDismissed) {
+      box.hidden = true; document.title = baseTitle;
+      if (!st) upKey = null;
+      return;
+    }
+    $('upHead').textContent = st.head; $('upSong').textContent = st.song;
+    box.hidden = false;
+    document.title = (st.key.indexOf('on') === 0 ? '🎤 Your turn! · ' : '⏭ Up next! · ') + baseTitle;
+    if (st.key !== upKey) {                          // new: buzz once (phones that allow it)
+      upKey = st.key;
+      try { if (navigator.vibrate) navigator.vibrate([180, 90, 180]); } catch (e) {}
+    }
+  }
+  $('upOk').onclick = function(){ upDismissed = upKey; $('upnext').hidden = true; document.title = baseTitle; };
 
   function refresh(){
     return api('/api/state').then(function(s){
@@ -578,8 +726,10 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
       recent = Array.isArray(s.recent) ? s.recent.filter(function(v){ return v && ID.test(v.id) && typeof v.title === 'string'; }).slice(0, 10) : [];
       var song = function(p){ return typeof p.song === 'string' ? p.song.slice(0, 60) : ''; };
       var tl = Array.isArray(s.top) ? s.top.filter(function(p){ return p && typeof p.name === 'string' && typeof p.score === 'number'; }).slice(0, 3) : [];
-      var db = s.duet && typeof s.duet.name === 'string' && typeof s.duet.score === 'number' ? { name: s.duet.name, score: s.duet.score, song: song(s.duet) } : null;
-      setTop(tl.map(function(p){ return { name: p.name, score: p.score, song: song(p) }; }), db);
+      // Scores have one decimal, like on the TV ("87.4"), and a perfect "100"
+      var pts = function(n){ return n >= 100 ? '100' : n.toFixed(1); };
+      var db = s.duet && typeof s.duet.name === 'string' && typeof s.duet.score === 'number' ? { name: s.duet.name, score: pts(s.duet.score), song: song(s.duet) } : null;
+      setTop(tl.map(function(p){ return { name: p.name, score: pts(p.score), song: song(p) }; }), db);
       var c = s.country || {};
       if (s.picks && c.code !== region) {
         region = c.code;
@@ -592,10 +742,12 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
       renderCheer(reacts, s.now ? s.now.singer : '');
       queueNow = Array.isArray(s.queue) ? s.queue.filter(function(it){ return it && typeof it.singer === 'string' && typeof it.title === 'string'; }) : [];
       renderQueue();
+      updateUpNext(s.now && typeof s.now.singer === 'string' ? s.now : null, queueNow[0] || null);
       $('tvnet').hidden = s.offline !== true;
       placeFab();                                     // the page may have grown or shrunk
     }).catch(function(e){
-      if (e && e.message === OLD_LINK) return;        // the bar already says what to do
+      // The bar already says what to do; check now and then only (the TV may have restarted with a new code)
+      if (e && e.message === OLD_LINK) { failures = 3; return; }
       failures = Math.min(failures + 1, 3);
       // one miss can be a blip; two in a row is worth saying
       if (failures >= 2) setNet(failures >= 3 ? '📡 Still can\'t reach the TV. Same Wi-Fi? If the TV restarted, scan its QR code again.' : NO_TV);
@@ -615,6 +767,34 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
   // The phone's own Wi-Fi came back, or the guest asks: check straight away
   window.addEventListener('online', function(){ refresh().then(schedule); });
   $('netRetry').onclick = function(){ $('netMsg').textContent = '📡 Checking…'; refresh().then(schedule); };
+  // ---- keep the phone's screen on while the page is open ----
+  // The proper call (Screen Wake Lock) only works on https pages; a party page on the home Wi-Fi is
+  // plain http, so the fallback is a tiny silent video playing in a loop (2 KB, muted, never shown).
+  var wakeLock = null, wakeVideo = null;
+  function videoAwake(){
+    if (!wakeVideo) {
+      wakeVideo = document.createElement('video');
+      wakeVideo.muted = true; wakeVideo.loop = true;
+      wakeVideo.setAttribute('playsinline', ''); wakeVideo.setAttribute('muted', ''); wakeVideo.setAttribute('aria-hidden', 'true');
+      wakeVideo.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0.01;pointer-events:none';
+      wakeVideo.src = 'data:video/mp4;base64,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';
+      document.body.appendChild(wakeVideo);
+    }
+    var p = wakeVideo.play(); if (p && p.catch) p.catch(function(){});
+  }
+  function keepAwake(){
+    if (document.visibilityState !== 'visible') return;
+    if (navigator.wakeLock && window.isSecureContext) {
+      if (wakeLock) return;
+      navigator.wakeLock.request('screen').then(function(l){
+        wakeLock = l; l.addEventListener('release', function(){ wakeLock = null; });
+      }).catch(videoAwake);
+    } else videoAwake();
+  }
+  // Browsers only allow it after a tap; it's let go when the page is hidden, so take it again on return
+  ['click', 'touchend'].forEach(function(ev){ document.addEventListener(ev, keepAwake, { passive: true }); });
+  document.addEventListener('visibilitychange', keepAwake);
+
   refresh().then(schedule);
 })();
 </script>

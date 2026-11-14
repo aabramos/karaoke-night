@@ -38,6 +38,47 @@ fun TextView.avatar(name: String) {
 }
 
 /**
+ * The party's look on special dates (the same dates as the achievements, see
+ * [Achievements.specialDays]): stage colours, twinkling lights and confetti.
+ */
+enum class PartyTheme(
+    val icon: String, val greeting: String?,
+    val background: IntArray, val floor: IntArray, val beams: IntArray, val lights: IntArray, val confetti: IntArray,
+    val snow: Boolean = false,
+) {
+    NONE("", null,
+        argb(0xFF1B0B33, 0xFF0E0620, 0xFF07030F), argb(0x66FF3DA5, 0x22B36BFF),
+        argb(0xFFFF3DA5, 0xFF2EE6FF, 0xFFB36BFF), argb(0xFFFFFFFF), PARTY_COLORS),
+    CHRISTMAS("🎄", "🎄 Merry Christmas! The party is dressed for it tonight",
+        argb(0xFF0E2A2A, 0xFF08161C, 0xFF03080D), argb(0x66E5323C, 0x2232D07A),
+        argb(0xFFFF4D5A, 0xFF4DFF88, 0xFFFFD23F), argb(0xFFFFFFFF, 0xFFE8F6FF),
+        argb(0xFFE5323C, 0xFF2FBF5B, 0xFFFFD23F, 0xFFFFFFFF), snow = true),
+    HALLOWEEN("🎃", "🎃 Happy Halloween! Spooky stage tonight",
+        argb(0xFF24093A, 0xFF120620, 0xFF06020A), argb(0x66FF7A1A, 0x22A13DFF),
+        argb(0xFFFF8A1F, 0xFFA13DFF, 0xFF7CFF3D), argb(0xFFFFA43D, 0xFFB98CFF),
+        argb(0xFFFF8A1F, 0xFFA13DFF, 0xFF7CFF3D, 0xFFF5F0E1)),
+    CARNIVAL("🎊", "🎊 It's Carnival! Extra colour on stage tonight",
+        argb(0xFF2E0A3A, 0xFF16063A, 0xFF07030F), argb(0x66FFD23F, 0x2200E5C8),
+        argb(0xFFFFD23F, 0xFF00E5C8, 0xFFFF2EA6), argb(0xFFFFD23F, 0xFF00E5C8, 0xFFFF2EA6, 0xFF7CFF6B),
+        argb(0xFFFFD23F, 0xFFFF2EA6, 0xFF00E5C8, 0xFF7CFF6B, 0xFFFF8A3D, 0xFF3D7BFF));
+
+    companion object {
+        /** The theme for a party night (see [Achievements.nightOf]). */
+        fun forNight(night: Long): PartyTheme {
+            val days = Achievements.specialDays(night)
+            return when {
+                "xmas" in days -> CHRISTMAS
+                "halloween" in days -> HALLOWEEN
+                "carnival" in days -> CARNIVAL
+                else -> NONE
+            }
+        }
+    }
+}
+
+private fun argb(vararg c: Long) = IntArray(c.size) { c[it].toInt() }
+
+/**
  * Animated nightclub stage behind the menus: sweeping spotlight beams, a glowing floor and
  * twinkling lights. Pure Canvas drawing at ~30 fps, no bitmaps, and it stops completely
  * while a video is playing.
@@ -50,7 +91,15 @@ class StageView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val beamPath = Path()
     private val beamShaders = arrayOfNulls<Shader>(3)
-    private val beamColors = intArrayOf(0xFFFF3DA5.toInt(), 0xFF2EE6FF.toInt(), 0xFFB36BFF.toInt())
+
+    /** Colours for special dates (see [PartyTheme]); snowflakes drift down at Christmas. */
+    var theme: PartyTheme = PartyTheme.NONE
+        set(value) {
+            if (field == value) return
+            field = value
+            if (width > 0) onSizeChanged(width, height, width, height)
+            invalidate()
+        }
     private val origins = floatArrayOf(0.18f, 0.5f, 0.82f)   // allocated once, not every frame
     private val dots = Array(36) { floatArrayOf(Random.nextFloat(), Random.nextFloat() * 0.75f, Random.nextFloat() * 6.28f, 1f + Random.nextFloat() * 2f) }
     private var start = System.nanoTime()
@@ -62,13 +111,12 @@ class StageView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
         }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        bgPaint.shader = LinearGradient(0f, 0f, 0f, h.toFloat(),
-            intArrayOf(0xFF1B0B33.toInt(), 0xFF0E0620.toInt(), 0xFF07030F.toInt()), null, Shader.TileMode.CLAMP)
+        bgPaint.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), theme.background, null, Shader.TileMode.CLAMP)
         floorPaint.shader = RadialGradient(w / 2f, h * 1.05f, w * 0.6f,
-            intArrayOf(0x66FF3DA5, 0x22B36BFF, 0x00000000), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+            intArrayOf(theme.floor[0], theme.floor[1], 0x00000000), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
         val len = h * 1.25f
         for (i in beamShaders.indices) {
-            val c = beamColors[i]
+            val c = theme.beams[i]
             beamShaders[i] = LinearGradient(0f, 0f, 0f, len,
                 intArrayOf((c and 0x00FFFFFF) or 0x55000000, (c and 0x00FFFFFF) or 0x14000000, c and 0x00FFFFFF),
                 floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
@@ -97,11 +145,15 @@ class StageView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
         canvas.drawRect(0f, h * 0.45f, w, h, floorPaint)
 
-        // Twinkling lights
-        for (d in dots) {
+        // Twinkling lights (falling snow at Christmas), in the theme's colours
+        val snow = theme.snow
+        dots.forEachIndexed { i, d ->
             val a = (0.5f + 0.5f * sin(t * d[3] + d[2]))
-            dotPaint.color = Color.argb((a * 170).toInt(), 255, 255, 255)
-            canvas.drawCircle(d[0] * w, d[1] * h, 1.2f + a * 1.8f, dotPaint)
+            val c = theme.lights[i % theme.lights.size]
+            dotPaint.color = Color.argb((a * 170).toInt(), Color.red(c), Color.green(c), Color.blue(c))
+            val y = if (snow) ((d[1] + t * 0.02f * d[3]) % 1f) * h else d[1] * h
+            val x = if (snow) d[0] * w + sin(t * 0.8f + d[2]) * 10f else d[0] * w
+            canvas.drawCircle(x, y, (if (snow) 1.8f else 1.2f) + a * 1.8f, dotPaint)
         }
 
         if (animating && isShown) postInvalidateDelayed(33)
@@ -115,6 +167,9 @@ class StageView @JvmOverloads constructor(context: Context, attrs: AttributeSet?
 
 /** Confetti burst drawn on a Canvas (capped number of pieces for low-end devices). */
 class ConfettiView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
+
+    /** The colours of the next bursts (the party theme's on special dates). */
+    var colors: IntArray = PARTY_COLORS
 
     private class Piece(
         var x: Float, var y: Float, var vx: Float, var vy: Float,
@@ -147,7 +202,7 @@ class ConfettiView @JvmOverloads constructor(context: Context, attrs: AttributeS
                 x, y, cos(angle) * speed, sin(angle) * speed,
                 Random.nextFloat() * 360f, Random.nextFloat() * 600f - 300f,
                 (6 + Random.nextFloat() * 6) * d, (10 + Random.nextFloat() * 8) * d,
-                PARTY_COLORS[Random.nextInt(PARTY_COLORS.size)], Random.nextFloat() * 6f
+                colors[Random.nextInt(colors.size)], Random.nextFloat() * 6f
             )
         }
         if (!running) {
@@ -422,6 +477,9 @@ class ReactionsView @JvmOverloads constructor(context: Context, attrs: Attribute
  * one path, drawn at about 30 fps and only while on screen.
  */
 class RaysView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
+    // Its shapes don't overlap: fading it needs no off-screen buffer (cheap on the Shield)
+    override fun hasOverlappingRendering() = false
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rays = Path()
     private var start = System.nanoTime()
@@ -463,5 +521,39 @@ class RaysView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)
         if (visibility == VISIBLE) invalidate()
+    }
+}
+
+/**
+ * The crowd's hype during a song, as a very thin bar on the left edge of the TV, from the middle:
+ * cheers fill it upwards (pink to gold), 😴 and 🍅 downwards (cold blue). Hidden until the first one.
+ */
+class HypeBarView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
+    // Drawn at 85% every frame of a song: applying that straight to its few shapes looks the same
+    // and skips an off-screen buffer
+    override fun hasOverlappingRendering() = false
+
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1FFFFFFF }
+    private val mid = Paint().apply { color = 0x55FFFFFF }
+    private val up = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val down = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rect = android.graphics.RectF()
+
+    /** -1 … +1. */
+    var level = 0f
+        set(v) { val c = v.coerceIn(-1f, 1f); if (c != field) { field = c; invalidate() } }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        val m = h / 2f
+        up.shader = LinearGradient(0f, m, 0f, 0f, intArrayOf(0xFFFF3DA5.toInt(), 0xFFFFD23F.toInt()), null, Shader.TileMode.CLAMP)
+        down.shader = LinearGradient(0f, m, 0f, h.toFloat(), intArrayOf(0xFF6B8CFF.toInt(), 0xFF3A4A7A.toInt()), null, Shader.TileMode.CLAMP)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat(); val r = w / 2; val m = h / 2
+        rect.set(0f, 0f, w, h); canvas.drawRoundRect(rect, r, r, track)
+        if (level > 0f) { rect.set(0f, m - m * level, w, m); canvas.drawRoundRect(rect, r, r, up) }
+        if (level < 0f) { rect.set(0f, m, w, m - m * level); canvas.drawRoundRect(rect, r, r, down) }
+        canvas.drawRect(0f, m - 0.5f, w, m + 0.5f, mid)
     }
 }

@@ -43,6 +43,7 @@ class Connection(context: Context, private val io: ExecutorService, private val 
     fun start() {
         if (started) return
         started = true
+        probing = false        // a check whose answer was dropped by stop() must not block the next ones
         lanAddress = readLanAddress()
         if (!hasNetwork()) online = false
         runCatching { cm.registerDefaultNetworkCallback(callback) }

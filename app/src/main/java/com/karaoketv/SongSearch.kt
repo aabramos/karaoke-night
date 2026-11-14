@@ -258,7 +258,7 @@ class SongSearch(context: Context) {
         try {
             val code = c.responseCode
             val body = (if (code in 200..299) c.inputStream else c.errorStream)
-                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                ?.bufferedReader()?.use { readCapped(it) }.orEmpty()
             if (code !in 200..299) {
                 val err = runCatching { JSONObject(body).getJSONObject("error") }.getOrNull()
                 val reason = err?.optJSONArray("errors")?.optJSONObject(0)?.optString("reason").orEmpty()
@@ -270,6 +270,18 @@ class SongSearch(context: Context) {
             return body
         } finally {
             c.disconnect()
+        }
+    }
+
+    /** Reads an answer, but never more than [MAX_ANSWER] characters (a broken or hostile reply can't fill the memory). */
+    private fun readCapped(r: java.io.Reader): String {
+        val sb = StringBuilder()
+        val buf = CharArray(8192)
+        while (true) {
+            val n = r.read(buf)
+            if (n < 0) return sb.toString()
+            if (sb.length + n > MAX_ANSWER) throw SearchException("YouTube sent an unexpected answer. Try again.")
+            sb.appendRange(buf, 0, n)
         }
     }
 
@@ -515,6 +527,8 @@ class SongSearch(context: Context) {
         private const val WEB_PAGES = 8
         private const val WANTED = 24
         private const val MAX_RESULTS = 30
+        /** The biggest API answer read (a page of 25 results is about 50 KB). */
+        private const val MAX_ANSWER = 1_000_000
 
         /**
          * View counts in any of YouTube's forms and languages: "1,234,567 views", "1.234.567

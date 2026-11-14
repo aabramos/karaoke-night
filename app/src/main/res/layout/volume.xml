@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Three volumes: the songs, the sound effects (countdown, drumroll, score) and the lobby music -->
+<!-- ⚙️ Settings: the three volumes on the left; lobby music, fair queue and About on the right.
+     The remote's ◀ ▶ move a slider, so ▼ from the last slider goes on to the right-hand column. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -7,182 +8,247 @@
     android:clickable="true">
 
     <LinearLayout
-        android:layout_width="560dp"
+        android:layout_width="800dp"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:background="@drawable/panel_bg"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:padding="22dp">
+        android:paddingStart="24dp"
+        android:paddingTop="18dp"
+        android:paddingEnd="24dp"
+        android:paddingBottom="18dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="sans-serif-black"
-            android:text="🔊 VOLUME"
+            android:text="⚙️ SETTINGS"
             android:textColor="#FFFFFF"
             android:textSize="28sp" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:gravity="center"
-            android:text="The TV's own volume and the microphones are separate."
-            android:textColor="@color/text_dim"
-            android:textSize="13sp" />
-
-        <!-- Songs, countdown and score sounds -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="🎤 Songs"
-                android:textColor="@color/text_main"
-                android:textSize="17sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/volumeValue"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:fontFamily="sans-serif-black"
-                android:shadowColor="@color/neon_pink"
-                android:shadowRadius="14"
-                android:textColor="#FFFFFF"
-                android:textSize="24sp" />
-        </LinearLayout>
-
-        <!-- Focusable: the remote's ◀ ▶ move it; on phones it's dragged -->
-        <SeekBar
-            android:id="@+id/volumeSlider"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:layout_marginTop="4dp"
-            android:background="@drawable/chip_bg"
-            android:contentDescription="Volume of the songs"
-            android:focusable="true"
-            android:max="100"
-            android:paddingStart="24dp"
-            android:paddingEnd="24dp"
-            android:progressDrawable="@drawable/volume_track"
-            android:thumbTint="@color/neon_pink" />
-
-        <!-- Countdown ticks, drumroll, score fanfare, pops -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="🥁 Sound effects"
-                android:textColor="@color/text_main"
-                android:textSize="17sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/fxValue"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:fontFamily="sans-serif-black"
-                android:shadowColor="@color/gold"
-                android:shadowRadius="14"
-                android:textColor="#FFFFFF"
-                android:textSize="24sp" />
-        </LinearLayout>
-
-        <SeekBar
-            android:id="@+id/fxSlider"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:layout_marginTop="4dp"
-            android:background="@drawable/chip_bg"
-            android:contentDescription="Volume of the sound effects"
-            android:focusable="true"
-            android:max="100"
-            android:paddingStart="24dp"
-            android:paddingEnd="24dp"
-            android:progressDrawable="@drawable/volume_track"
-            android:thumbTint="@color/gold" />
-
-        <!-- Lobby music, usually much lower: it plays while people talk -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="🎵 Lobby music"
-                android:textColor="@color/text_main"
-                android:textSize="17sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/lobbyValue"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:fontFamily="sans-serif-black"
-                android:shadowColor="@color/neon_cyan"
-                android:shadowRadius="14"
-                android:textColor="#FFFFFF"
-                android:textSize="24sp" />
-        </LinearLayout>
-
-        <SeekBar
-            android:id="@+id/lobbySlider"
-            android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:layout_marginTop="4dp"
-            android:background="@drawable/chip_bg"
-            android:contentDescription="Lobby music volume"
-            android:focusable="true"
-            android:max="100"
-            android:paddingStart="24dp"
-            android:paddingEnd="24dp"
-            android:progressDrawable="@drawable/volume_track"
-            android:thumbTint="@color/neon_cyan" />
-
-        <TextView
-            android:id="@+id/volumeHint"
-            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="◀ ▶ to change"
-            android:textColor="@color/text_dim"
-            android:textSize="13sp" />
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
             android:orientation="horizontal">
 
-            <TextView
-                android:id="@+id/volumeMusic"
-                style="@style/TvButton" />
+            <!-- Volumes -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/volumeDone"
-                style="@style/TvButton.Primary"
-                android:layout_marginStart="12dp"
-                android:text="Done" />
+                <TextView
+                    style="@style/PickerSection"
+                    android:layout_width="wrap_content"
+                    android:text="🔊 VOLUME" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="The TV's own volume and the microphones are separate."
+                    android:textColor="@color/text_dim"
+                    android:textSize="12sp" />
+
+                <!-- Songs, countdown and score sounds -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="🎤 Songs"
+                        android:textColor="@color/text_main"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/volumeValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-black"
+                        android:shadowColor="@color/neon_pink"
+                        android:shadowRadius="14"
+                        android:textColor="#FFFFFF"
+                        android:textSize="24sp" />
+                </LinearLayout>
+
+                <!-- Focusable: the remote's ◀ ▶ move it; on phones it's dragged -->
+                <SeekBar
+                    android:id="@+id/volumeSlider"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@drawable/chip_bg"
+                    android:contentDescription="Volume of the songs"
+                    android:focusable="true"
+                    android:max="100"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:progressDrawable="@drawable/volume_track"
+                    android:thumbTint="@color/neon_pink" />
+
+                <!-- Countdown ticks, drumroll, score fanfare, pops -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="🥁 Sound effects"
+                        android:textColor="@color/text_main"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/fxValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-black"
+                        android:shadowColor="@color/gold"
+                        android:shadowRadius="14"
+                        android:textColor="#FFFFFF"
+                        android:textSize="24sp" />
+                </LinearLayout>
+
+                <SeekBar
+                    android:id="@+id/fxSlider"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@drawable/chip_bg"
+                    android:contentDescription="Volume of the sound effects"
+                    android:focusable="true"
+                    android:max="100"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:progressDrawable="@drawable/volume_track"
+                    android:thumbTint="@color/gold" />
+
+                <!-- Lobby music, usually much lower: it plays while people talk -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="🎵 Lobby music"
+                        android:textColor="@color/text_main"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/lobbyValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-black"
+                        android:shadowColor="@color/neon_cyan"
+                        android:shadowRadius="14"
+                        android:textColor="#FFFFFF"
+                        android:textSize="24sp" />
+                </LinearLayout>
+
+                <SeekBar
+                    android:id="@+id/lobbySlider"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@drawable/chip_bg"
+                    android:contentDescription="Lobby music volume"
+                    android:nextFocusDown="@id/volumeMusic"
+                    android:nextFocusRight="@id/volumeMusic"
+                    android:focusable="true"
+                    android:max="100"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:progressDrawable="@drawable/volume_track"
+                    android:thumbTint="@color/neon_cyan" />
+
+                <TextView
+                    android:id="@+id/volumeHint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="◀ ▶ to change"
+                    android:textColor="@color/text_dim"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="20dp"
+                android:layout_marginEnd="20dp"
+                android:background="#33FFFFFF" />
+
+            <!-- Party options -->
+            <LinearLayout
+                android:layout_width="270dp"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/PickerSection"
+                    android:layout_width="wrap_content"
+                    android:text="🎉 PARTY" />
+
+                <TextView
+                    android:id="@+id/volumeMusic"
+                    style="@style/TvButton"
+                    android:layout_width="match_parent"
+                    android:layout_marginTop="6dp"
+                    android:nextFocusLeft="@id/lobbySlider"
+                    android:nextFocusUp="@id/lobbySlider" />
+
+                <TextView
+                    android:id="@+id/settingsFair"
+                    style="@style/TvButton"
+                    android:layout_width="match_parent"
+                    android:layout_marginTop="10dp"
+                    android:nextFocusLeft="@id/lobbySlider" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:text="Nobody sings twice before everyone has sung once: songs are put in rounds. Good for big groups."
+                    android:textColor="@color/text_dim"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/settingsAbout"
+                    style="@style/TvButton"
+                    android:layout_width="match_parent"
+                    android:layout_marginTop="12dp"
+                    android:nextFocusLeft="@id/lobbySlider"
+                    android:text="ℹ️ About this app" />
+            </LinearLayout>
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/volumeDone"
+            style="@style/TvButton.Primary"
+            android:layout_marginTop="14dp"
+            android:minWidth="160dp"
+            android:text="Done" />
     </LinearLayout>
 </FrameLayout>

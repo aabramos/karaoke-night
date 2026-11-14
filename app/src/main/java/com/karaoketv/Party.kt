@@ -36,6 +36,8 @@ data class QueueItem(
     val duet: Boolean = false,
     val owner: String? = null,
     val genres: List<String> = emptyList(),
+    /** "For Bia": shown for a few seconds before the song starts (see [dedicationFor]). */
+    val dedication: String? = null,
 ) {
     companion object {
         // Starts from the clock, so keys stay unique after the app restarts (phones remember theirs)
@@ -91,6 +93,13 @@ fun cleanName(raw: String?): String? {
     return s.take(20).ifEmpty { null }
 }
 
+/**
+ * A dedication ("for Bia") from what was typed, or null: empty, or the singer dedicating it to
+ * themselves.
+ */
+fun dedicationFor(raw: String?, singer: String): String? =
+    cleanName(raw)?.takeIf { d -> singer.split(DUET_JOIN).none { it.equals(d, ignoreCase = true) } }
+
 /** A duet's display name from two raw names, or null if either is empty or they're the same person. */
 fun duetName(a: String?, b: String?): String? {
     val x = cleanName(a) ?: return null
@@ -106,6 +115,17 @@ fun duetName(a: String?, b: String?): String? {
 class PartyQueue(private val main: Handler) {
     private val items = ArrayList<QueueItem>()
     var onChanged: (() -> Unit)? = null
+
+    /**
+     * Fair queue: songs are put in rounds, so nobody sings twice before everyone has sung once.
+     * [sungTonight] tells how many songs each person (lower-case name) has already sung tonight.
+     * A song moved with "Sing next" stays first; one sent to the end ("later") stays last.
+     */
+    @Volatile var fair = false
+        set(value) { field = value; if (value) { synchronized(items) { rebalance() }; changed() } }
+    @Volatile var sungTonight: () -> Map<String, Int> = { emptyMap() }
+    private val pinned = HashSet<Long>()
+    private val deferred = HashSet<Long>()
 
     /** Who is singing right now (read by the phone server too). */
     @Volatile var current: QueueItem? = null
@@ -123,6 +143,7 @@ class PartyQueue(private val main: Handler) {
             if (items.count { it.singer.equals(item.singer, ignoreCase = true) } >= MAX_PER_SINGER)
                 return "${item.singer} already has $MAX_PER_SINGER songs waiting. Let others sing too!"
             items.add(item)
+            if (fair) rebalance()
         }
         changed()
         return null
@@ -132,25 +153,28 @@ class PartyQueue(private val main: Handler) {
     fun positionOf(key: Long): Int = synchronized(items) { items.indexOfFirst { it.key == key } + 1 }
 
     fun pollNext(): QueueItem? {
-        val next = synchronized(items) { if (items.isEmpty()) null else items.removeAt(0) }
+        val next = synchronized(items) {
+            if (items.isEmpty()) null else items.removeAt(0).also { pinned.remove(it.key); deferred.remove(it.key) }
+        }
         if (next != null) changed()
         return next
     }
 
     fun peekNext(): QueueItem? = synchronized(items) { items.firstOrNull() }
 
+    /** Back to the front (the next singer, sent back to the lobby): they keep their turn, fair queue or not. */
     fun pushFront(item: QueueItem) {
-        synchronized(items) { items.add(0, item) }
+        synchronized(items) { items.add(0, item); pinned.clear(); pinned += item.key; deferred -= item.key }
         changed()
     }
 
     fun pushBack(item: QueueItem) {
-        synchronized(items) { items.add(item) }
+        synchronized(items) { items.add(item); deferred += item.key; pinned -= item.key }
         changed()
     }
 
     fun remove(key: Long) {
-        synchronized(items) { items.removeAll { it.key == key } }
+        synchronized(items) { items.removeAll { it.key == key }; pinned -= key; deferred -= key }
         changed()
     }
 
@@ -170,8 +194,32 @@ class PartyQueue(private val main: Handler) {
         synchronized(items) {
             val i = items.indexOfFirst { it.key == key }
             if (i > 0) items.add(0, items.removeAt(i))
+            if (i >= 0) { pinned.clear(); pinned += key; deferred -= key }
         }
         changed()
+    }
+
+    /**
+     * Fair order: each song's round is how many songs its singer has had before it (sung tonight,
+     * plus their earlier songs in the queue); a duet goes by whichever partner has had more.
+     * The sort is stable, so songs in the same round keep their order. Call holding the lock.
+     */
+    private fun rebalance() {
+        if (items.size < 2) return
+        val sung = runCatching { sungTonight() }.getOrDefault(emptyMap())
+        val seen = HashMap<String, Int>()
+        val round = HashMap<Long, Int>()
+        for (it in items) {
+            val people = it.singer.split(DUET_JOIN).map { p -> p.lowercase() }
+            round[it.key] = when (it.key) {
+                in pinned -> -1
+                in deferred -> Int.MAX_VALUE
+                else -> people.maxOf { p -> (sung[p] ?: 0) + (seen[p] ?: 0) }
+            }
+            people.forEach { p -> seen[p] = (seen[p] ?: 0) + 1 }
+        }
+        val sorted = items.sortedBy { round[it.key] }
+        items.clear(); items.addAll(sorted)
     }
 
     private fun changed() {
@@ -259,13 +307,15 @@ class PartyBackend(
 
     private fun buildState(): String {
         val o = JSONObject()
-        queue.current?.let { o.put("now", JSONObject().put("singer", it.singer).put("title", it.song.title)) }
+        queue.current?.let { o.put("now", JSONObject().put("singer", it.singer).put("title", it.song.title).put("k", it.key)) }
         if (!online) o.put("offline", true)
         // While a song plays, the phones show these cheer buttons
         if (live && queue.current != null) o.put("react", JSONArray().also { a -> REACTIONS.forEach { a.put(it) } })
         val arr = JSONArray()
         // "k": each song's key, so the phone that added a song can offer to remove it
-        queue.snapshot().forEach { arr.put(JSONObject().put("singer", it.singer).put("title", it.song.title).put("k", it.key)) }
+        queue.snapshot().forEach { q ->
+            arr.put(JSONObject().put("singer", q.singer).put("title", q.song.title).put("k", q.key).apply { q.dedication?.let { put("for", it) } })
+        }
         // Phones show the same quick picks as the TV
         val c = search.country
         val picks = JSONArray()
@@ -291,7 +341,7 @@ class PartyBackend(
         return o.put("queue", arr).toString()
     }
 
-    override fun add(videoId: String?, singer: String?, partner: String?, phone: String?, from: String?): PartyServer.Added {
+    override fun add(videoId: String?, singer: String?, partner: String?, phone: String?, from: String?, forWho: String?): PartyServer.Added {
         fun fail(msg: String) = PartyServer.Added.failed(msg)
         if (videoId == null || !isVideoId(videoId)) return fail("That song can't be added.")
         val song = search.lookup(videoId) ?: return fail("Search for the song first, then add it.")
@@ -299,7 +349,7 @@ class PartyBackend(
         val duet = !partner.isNullOrBlank()
         val name = if (duet) duetName(solo, partner) ?: return fail("Type a different name for your duet partner.") else solo
         val item = QueueItem(song, name, fromPhone = true, duet = duet, owner = ownerTag(phone),
-            genres = Genres.detect(song.title, from?.take(80)))
+            genres = Genres.detect(song.title, from?.take(80)), dedication = dedicationFor(forWho, name))
         val err = queue.add(item)
         if (err != null) return fail(err)
         invalidate()
@@ -356,13 +406,13 @@ private const val STATE_CACHE_MS = 1000L
 private const val NO_INTERNET = "📡 The TV can't reach YouTube right now. Try again when its internet is back."
 
 /** The cheers guests can send from their phones (the phone sends the number). */
-val REACTIONS = listOf("👏", "🔥", "😍", "🎉", "😂", "😴", "🍅")
+val REACTIONS = listOf("🔥", "😍", "👏", "🎉", "😂", "😴", "🍅")   // best to worst, as on the phones
 
 /**
- * The secret behind the cheers: each phone's last one before the song ends is a vote that nudges
- * the score a little (see [Judge.CROWD_POINTS]). Same order as [REACTIONS]. Nobody is told.
+ * The secret behind the cheers: each phone's emojis, averaged, are a vote that pulls
+ * the score towards what the room thought (see [Judge.crowd]). Same order as [REACTIONS]. Nobody is told.
  */
-val REACTION_VOTES = intArrayOf(1, 2, 2, 1, 0, -1, -2)
+val REACTION_VOTES = intArrayOf(2, 2, 1, 1, 1, -1, -2)   // 😂 counts as fun, like 👏 and 🎉
 
 /** A phone can cheer once every this many milliseconds (the page itself waits a little longer). */
 const val CHEER_GAP_MS = 2500L
@@ -379,30 +429,28 @@ object QueueStore {
         (listOfNotNull(queue.current) + queue.snapshot()).forEach {
             arr.put(JSONArray().put(it.song.id).put(it.song.title.take(100)).put(it.song.channel.take(40))
                 .put(it.song.duration).put(it.singer).put((if (it.fromPhone) 1 else 0) or (if (it.duet) 2 else 0))
-                .put(it.key).put(it.owner ?: "").apply { if (it.genres.isNotEmpty()) put(it.genres.joinToString(",")) })
+                .put(it.key).put(it.owner ?: "").put(it.genres.joinToString(","))
+                .apply { it.dedication?.let { d -> put(d) } })
         }
         prefs.edit().putString("q", arr.toString()).remove("queue").apply()
     }
 
     fun restore(prefs: android.content.SharedPreferences, queue: PartyQueue) {
-        val arr = runCatching { JSONArray(prefs.getString("q", null) ?: prefs.getString("queue", null) ?: "[]") }.getOrNull() ?: return
+        val arr = runCatching { JSONArray(prefs.getString("q", null) ?: "[]") }.getOrNull() ?: return
         for (i in 0 until arr.length()) {
-            val r = arr.optJSONArray(i)
-            val o = if (r == null) arr.optJSONObject(i) ?: continue else null      // before 3.12: objects
-            val id = r?.optString(0) ?: o!!.optString("i")
-            val flags = r?.optInt(5) ?: ((if (o!!.optBoolean("p", false)) 1 else 0) or (if (o.optBoolean("du", false)) 2 else 0))
+            val r = arr.optJSONArray(i) ?: continue
+            val id = r.optString(0)
+            val flags = r.optInt(5)
             val duet = flags and 2 != 0
-            val raw = r?.optString(4) ?: o!!.optString("s")
+            val raw = r.optString(4)
             val name = (if (duet) raw.split(DUET_JOIN).let { duetName(it.getOrNull(0), it.getOrNull(1)) } else cleanName(raw)) ?: continue
             if (!isVideoId(id)) continue
-            val song = if (r != null) Song(id, r.optString(1).take(150), r.optString(2).take(80), r.optString(3).take(10))
-            else Song(id, o!!.optString("t").take(150), o.optString("c").take(80), o.optString("d").take(10))
-            val key = r?.optLong(6) ?: 0L
-            val owner = r?.optString(7)?.takeIf { it.length == 16 }
-            if (key > 0) QueueItem.noteKey(key)
-            val genres = r?.optString(8).orEmpty().split(',').filter { Genres.get(it) != null }
-            queue.add(if (key > 0) QueueItem(song, name, flags and 1 != 0, key = key, duet = duet, owner = owner, genres = genres)
-                      else QueueItem(song, name, flags and 1 != 0, duet = duet, genres = Genres.detect(song.title, null)))
+            val song = Song(id, r.optString(1).take(150), r.optString(2).take(80), r.optString(3).take(10))
+            val key = r.optLong(6)
+            val owner = r.optString(7).takeIf { it.length == 16 }
+            val genres = r.optString(8).split(',').filter { Genres.get(it) != null }
+            val item = QueueItem(song, name, flags and 1 != 0, duet = duet, owner = owner, genres = genres, dedication = cleanName(r.optString(9)))
+            queue.add(if (key > 0) { QueueItem.noteKey(key); item.copy(key = key) } else item)
         }
     }
 }
