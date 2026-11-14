@@ -696,9 +696,13 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
     var me = whoAmI();
     return !!me && it.singer.toLowerCase().split(' & ').indexOf(me) >= 0;
   }
-  function updateUpNext(now, next){
+  var startedKey = null;     // the song that has started playing: from then on "it's your turn" is old news
+  function updateUpNext(now, next, live){
     var st = null;
-    if (now && forMe(now)) st = { key: 'on' + (now.k || now.title), head: '🎤 ' + now.singer + ', it\'s your turn!', song: 'Grab the mic: ' + now.title };
+    var nowKey = now ? 'on' + (now.k || now.title) : null;
+    if (now && live) startedKey = nowKey;
+    // Your turn: shown during the "Next up" countdown, hidden by itself once you're singing (even if paused later)
+    if (now && forMe(now)) { if (nowKey !== startedKey) st = { key: nowKey, head: '🎤 ' + now.singer + ', it\'s your turn!', song: 'Grab the mic: ' + now.title }; }
     else if (next && forMe(next)) st = { key: 'next' + next.k, head: '⏭ ' + next.singer + ', you\'re up next!', song: 'Get ready: ' + next.title };
     var box = $('upnext');
     if (!st || st.key === upDismissed) {
@@ -742,7 +746,7 @@ input.need{border-color:var(--pink);box-shadow:0 0 0 4px rgba(255,61,165,.25);an
       renderCheer(reacts, s.now ? s.now.singer : '');
       queueNow = Array.isArray(s.queue) ? s.queue.filter(function(it){ return it && typeof it.singer === 'string' && typeof it.title === 'string'; }) : [];
       renderQueue();
-      updateUpNext(s.now && typeof s.now.singer === 'string' ? s.now : null, queueNow[0] || null);
+      updateUpNext(s.now && typeof s.now.singer === 'string' ? s.now : null, queueNow[0] || null, reacts.length > 0);
       $('tvnet').hidden = s.offline !== true;
       placeFab();                                     // the page may have grown or shrunk
     }).catch(function(e){

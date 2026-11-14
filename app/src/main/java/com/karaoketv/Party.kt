@@ -405,6 +405,33 @@ private const val STATE_CACHE_MS = 1000L
 
 private const val NO_INTERNET = "📡 The TV can't reach YouTube right now. Try again when its internet is back."
 
+/**
+ * Who each phone queues songs for tonight (by fingerprint): the people in every one of its songs.
+ * A phone that only queues songs with Ana in them is Ana's own, so its emojis don't count while
+ * Ana sings (no cheering yourself). A phone a small party passes around (songs for Ana, then for
+ * Rui) is nobody's in particular, so it always counts.
+ */
+class PhoneOwners(private val max: Int = 300) {
+    private val people = HashMap<String, Set<String>>()
+
+    private fun peopleIn(item: QueueItem) = item.singer.split(DUET_JOIN).map { it.trim().lowercase() }.toSet()
+
+    /** A phone queued [item] (songs from the TV have no phone and are ignored). */
+    fun note(item: QueueItem) {
+        val phone = item.owner ?: return
+        if (phone !in people && people.size >= max) return
+        val these = peopleIn(item)
+        people[phone] = people[phone]?.intersect(these) ?: these
+    }
+
+    /** Whether [phone] belongs to someone singing [item]: it queued it, and all its songs have one of them in them. */
+    fun isSingers(phone: String, item: QueueItem): Boolean {
+        if (phone != item.owner) return false
+        val theirs = people[phone] ?: return true
+        return peopleIn(item).any { it in theirs }
+    }
+}
+
 /** The cheers guests can send from their phones (the phone sends the number). */
 val REACTIONS = listOf("🔥", "😍", "👏", "🎉", "😂", "😴", "🍅")   // best to worst, as on the phones
 

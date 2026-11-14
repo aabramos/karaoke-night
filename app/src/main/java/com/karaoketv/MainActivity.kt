@@ -1241,6 +1241,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private fun beginSinging() {
         val item = queue.current ?: return goLobby()
+        phoneOwners.note(item)                     // also covers songs queued before the app restarted
         if (repairingKey == item.key) return   // still looking for a version that plays
         ui.removeCallbacks(countdownTick)
         // A dedication first (once): "Ana sings this for Bia"
@@ -1408,9 +1409,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
         hypeLabel.animate().cancel(); hypeLabel.visibility = View.GONE
     }
 
-    /** A cheer (or 😴 / 🍅) from a phone: the bar moves a little, and drifts back while nobody sends any. */
+    /** A cheer (or 😴 / 🍅) from a phone: the bar moves a little, and slowly drifts back once the room goes quiet. */
     private fun hypeCheer(positive: Boolean) {
-        val ended = hype.cheer(System.currentTimeMillis(), positive)
+        val ended = hype.cheer(System.currentTimeMillis(), positive, queue.current?.let { roomFor(it) } ?: 0)
         showHype()
         if (ended) {
             // An end reached: a short pulse and one emoji; the points wait for the score
@@ -1427,7 +1428,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     private fun showHype() {
-        val level = hype.at(System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        if (!liveNow()) hype.freeze(now)                  // paused: the bar waits too
+        val level = hype.at(now)
         hypeBar.level = level.toFloat()
         hypeBar.visibility = if (mode == Mode.SINGING && level != 0.0) View.VISIBLE else View.GONE
         ui.removeCallbacks(hypeTick)
@@ -1663,9 +1666,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         // thought (more so when more of the room voted), then the hype bar and past crowds count too
         songRep = runCatching { achievements.reputation(item.singer) }.getOrDefault(0.0)
         val phoneVotes = votes.values.map { it[0].toDouble() / it[1] }     // each phone: the average of its emojis
-        // The singer's own phone (the one that queued the song) can't vote, so it isn't counted in the room either
-        val room = ((server?.phonesNow() ?: 0) - (if (item.owner != null) 1 else 0)).coerceAtLeast(0)
-        val crowd = Judge.crowd(phoneVotes, room)
+        val crowd = Judge.crowd(phoneVotes, roomFor(item))
         val score = Judge.score(fraction, crowd, bonus = hype.points, reputation = songRep) ?: return afterSong()
         songRoom = crowd.average * crowd.weight             // breaks ties in the rankings
         if (phoneVotes.size >= Judge.REP_VOTERS) runCatching { achievements.rated(item.singer, phoneVotes.average()) }
@@ -2246,6 +2247,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     override fun onPhoneAdded(item: QueueItem) {
+        phoneOwners.note(item)
         sfx.play(sfx.pop)
         toast("📱 ${item.singer} added “${item.song.title.take(45)}”")
     }
@@ -2265,15 +2267,22 @@ class MainActivity : Activity(), PartyBackend.Listener {
         if (!liveNow()) return
         val emoji = REACTIONS.getOrNull(index) ?: return
         stageReactions.cheer(emoji)
-        // The singer's own phone (the one that queued the song) only gets to see its emoji rise:
-        // no vote, no hype, no cheers or emoji achievements for cheering yourself
-        if (owner == queue.current?.owner) return
+        // The singer's own phone only gets to see its emoji rise: no vote, no hype, no cheers or
+        // emoji achievements for cheering yourself
+        if (queue.current?.let { phoneOwners.isSingers(owner, it) } == true) return
         if (owner in votes || votes.size < MAX_VOTES) votes.getOrPut(owner) { IntArray(2) }.let { it[0] += REACTION_VOTES[index]; it[1]++ }
         if (REACTION_VOTES[index] >= 0) cheers.add(queue.current?.singer, queue.current?.song?.title)   // 😴 and 🍅 aren't cheers
         achievements.cheered(queue.current?.singer, emoji)                   // every emoji counts for the emoji achievements
         songEmojis[emoji] = (songEmojis[emoji] ?: 0) + 1
         hypeCheer(REACTION_VOTES[index] >= 0)
     }
+
+    /** The room for [item]: phones with the party page open, minus the singer's own (it can't vote). 0: unknown. */
+    private fun roomFor(item: QueueItem): Int =
+        ((server?.phonesNow() ?: 0) - (if (item.owner?.let { phoneOwners.isSingers(it, item) } == true) 1 else 0)).coerceAtLeast(0)
+
+    /** Which phones are someone's own and which are passed around (see [PhoneOwners]). */
+    private val phoneOwners = PhoneOwners()
 
     /** The score's points from the singer's reputation (past crowds), for its badge line. */
     private var songRep = 0.0

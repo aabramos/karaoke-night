@@ -95,6 +95,20 @@
             android:layout_marginStart="8dp"
             android:contentDescription="Settings: volume, lobby music, fair queue and About"
             android:text="⚙️" />
+
+        <!-- The time, so singers can keep an eye on the night (follows the TV's 12/24-hour setting;
+             updates itself every minute, nothing to run) -->
+        <TextClock
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:focusable="false"
+            android:fontFamily="sans-serif-medium"
+            android:format12Hour="h:mm a"
+            android:format24Hour="HH:mm"
+            android:includeFontPadding="false"
+            android:textColor="@color/text_main"
+            android:textSize="21sp" />
     </LinearLayout>
 
     <HorizontalScrollView

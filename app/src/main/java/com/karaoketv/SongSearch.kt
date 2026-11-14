@@ -121,7 +121,12 @@ class SongSearch(context: Context) {
 
     private fun channelKey(c: String) = c.lowercase(Locale.ROOT).trim()
 
+    /**
+     * Whether to show a video: not one that refused to play here, nor from a channel that keeps
+     * refusing, nor [MAX_LENGTH_S] or longer (karaoke compilations, or not karaoke at all).
+     */
     fun isPlayable(s: Song): Boolean {
+        if ((seconds(s.duration) ?: 0) >= MAX_LENGTH_S) return false
         val ch = channelKey(s.channel)
         synchronized(badIds) {
             if (s.id in badIds) return false
@@ -638,6 +643,13 @@ class SongSearch(context: Context) {
 
         @Suppress("DEPRECATION")
         private fun unescape(s: String): String = Html.fromHtml(s, Html.FROM_HTML_MODE_LEGACY).toString().take(150)
+
+        /** Videos this long or longer are hidden from every search (20 minutes). */
+        const val MAX_LENGTH_S = 20 * 60
+
+        /** "4:05" → 245, "1:02:03" → 3723; null when there's no length (live, or not known yet). */
+        fun seconds(duration: String): Int? = duration.split(':').takeIf { it.size in 2..3 }
+            ?.map { it.trim().toIntOrNull() ?: return null }?.fold(0) { total, n -> total * 60 + n }
 
         /** "PT1H2M3S" → "1:02:03", "PT4M5S" → "4:05". Empty for live (P0D). */
         fun isoDuration(iso: String): String {

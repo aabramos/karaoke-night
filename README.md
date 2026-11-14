@@ -4,7 +4,7 @@ Party karaoke for Android TV (built for the NVIDIA Shield). Also runs on Android
 
 ## Features
 
-- Karaoke-only YouTube search, with quick picks (Top hits, 80s, 90s, Duets…) and voice search
+- Karaoke-only YouTube search (videos of 20 minutes or more, like compilations, are left out), with quick picks (Top hits, 80s, 90s, Duets…) and voice search
 - Song queue with a "Next up" countdown between singers
 - 💌 Dedications: type a name when adding a song (TV or phone) and the TV shows "Ana sings this for Bia" for 5 seconds before it starts
 - Guests add songs from their phones by scanning a QR code, without interrupting the singer
@@ -13,14 +13,15 @@ Party karaoke for Android TV (built for the NVIDIA Shield). Also runs on Android
 - ⚖️ Fair queue: nobody sings twice before everyone has sung once (on/off in ⚙️ Settings)
 - 🎲 Surprise me: a random song everyone knows
 - Party country: quick picks and search ranking for any country
-- Cheers from the phones that float up the edge of the TV, and a secret hype bar on the left edge of the TV (no label until it fills): a room that keeps cheering fills it ("🔥 HYPE" appears, +3 points and a 🔥 on the score), a room that keeps booing empties it (-3 and a 🍅)
+- Cheers from the phones that float up the edge of the TV, and a secret hype bar on the left edge of the TV (no label until it fills; it holds while the room cheers, drifts back slowly once it goes quiet, and pauses with the song; one phone cheering steadily fills it in about a minute and a half, a bigger room sooner): a room that keeps cheering fills it ("🔥 HYPE" appears, +3 points and a 🔥 on the score), a room that keeps booing empties it (-3 and a 🍅)
 - Party themes: on Christmas (24 and 25 Dec), Halloween and Carnival the stage colours and confetti dress up (snow at Christmas)
 - Quick, light transitions: pop-ups and lists slide into place, buttons grow when the remote lands on them, new songs slide into the queue (TV and phones). On the TV they only move things (no full-screen fades), so they stay cheap on the Shield, and they switch off with the system's animations
-- Bossa nova lobby music between songs, and three volume sliders: songs, sound effects, lobby music (10% by default)
+- A clock in the lobby, next to ⚙️, so everyone can keep an eye on the time
+- Cozy slow jazz lobby music between songs (piano, upright bass and brushed drums), and three volume sliders: songs, sound effects, lobby music (10% by default)
 - No YouTube API key needed (an optional key makes search more reliable)
 - Keeps going when the internet or Wi-Fi drops (see [Connection problems](#connection-problems))
 
-**Scoring:** a song sung to the end scores 65.0 to 100, about 79.5 on average. Scores have one decimal (87.4), so equal scores are rare; when two are equal, the song the room loved more ranks higher, then whoever sang first. Three quarters of songs land between 70 and 89, spread almost evenly (4.3% for a 70, sloping gently down to 3.2% for an 89), so no score comes up over and over. By band: 70 to 74 20.9%, 75 to 79 19.5%, 80 to 84 18%, 85 to 89 16.6%, 65 to 69 12%, 90 to 94 9%, 95 to 99 3.6%, and 100 0.4%, the rarest of all. Only an untouched 100 stays 100; the crowd can never push a score to 100. The room decides most of it: each phone's emojis are a hidden vote (the average of all it sent, so one busy phone counts once like the others; 😂 counts as fun, like 👏 and 🎉; the singer's own phone, the one that queued the song, doesn't count), and the votes point to a score (92 when everyone loved it, 68 when everyone booed). The random roll is pulled towards it, but only the way the room feels: love never lowers a lucky roll, boos never lift an unlucky one, and a room split exactly down the middle changes nothing. The pull is 24% of the way with one phone, 36% with two, 48% with three and 60% with four or more, less when only part of the room voted (phones with the party page open; 10 of 30 phones: 36%). The hype bar then adds or takes 3, and each singer's reputation from past crowds up to 1 (only songs with at least 2 phones voting; it grows slowly so newcomers start at 0, and follows their recent songs most). With no votes the roll stands. So a loved song averages about 87 (90+ in 1 of 5 songs, twice as often as with no votes), with a full hype bar about 90, and a booed one about 72.5. On the phones the emojis go from most points (🔥 😍) on the left to fewest (😴 🍅) on the right. Stopping early scores 0 to 65, higher the further you got. Stopping in the first 10% gives no score. A quarter of 85+ scores get the judges or the emoji crowd; above 95 the judges come out half the time; more than 50 emojis from phones always bring the emoji crowd.
+**Scoring:** a song sung to the end scores 65.0 to 100, about 79.5 on average. Scores have one decimal (87.4), so equal scores are rare; when two are equal, the song the room loved more ranks higher, then whoever sang first. Three quarters of songs land between 70 and 89, spread almost evenly (4.3% for a 70, sloping gently down to 3.2% for an 89), so no score comes up over and over. By band: 70 to 74 20.9%, 75 to 79 19.5%, 80 to 84 18%, 85 to 89 16.6%, 65 to 69 12%, 90 to 94 9%, 95 to 99 3.6%, and 100 0.4%, the rarest of all. Only an untouched 100 stays 100; the crowd can never push a score to 100. The room decides most of it: each phone's emojis are a hidden vote (the average of all it sent, so one busy phone counts once like the others; 😂 counts as fun, like 👏 and 🎉; the singer's own phone doesn't count; a phone passed around to queue songs for several people always counts), and the votes point to a score (92 when everyone loved it, 68 when everyone booed). The random roll is pulled towards it, but only the way the room feels: love never lowers a lucky roll, boos never lift an unlucky one, and a room split exactly down the middle changes nothing. The pull is 24% of the way with one phone, 36% with two, 48% with three and 60% with four or more, less when only part of the room voted (phones with the party page open; 10 of 30 phones: 36%). The hype bar then adds or takes 3, and each singer's reputation from past crowds up to 1 (only songs with at least 2 phones voting; it grows slowly so newcomers start at 0, and follows their recent songs most). With no votes the roll stands. So a loved song averages about 87 (90+ in 1 of 5 songs, twice as often as with no votes), with a full hype bar about 90, and a booed one about 72.5. On the phones the emojis go from most points (🔥 😍) on the left to fewest (😴 🍅) on the right. Stopping early scores 0 to 65, higher the further you got. Stopping in the first 10% gives no score. A quarter of 85+ scores get the judges or the emoji crowd; above 95 the judges come out half the time; more than 50 emojis from phones always bring the emoji crowd.
 
 ## Party checklist
 
@@ -57,7 +58,7 @@ On a touchscreen, tap instead: the video opens a controls bar, and pop-ups have 
 
 Guests scan the QR code (same Wi-Fi as the TV), pick who's singing (like on the TV: Solo or Duet, tap a name, type a new one or 🎲), search, and tap **+**. The choice is remembered on the phone.
 
-From the top, the page shows: who's singing (with cheer buttons during a song), tonight's top 3, the queue, who's singing, and the search. A **🔍 Add a song** button jumps to the search. After adding, the phone says your place in line; added the wrong song? Tap its ✓ (then **Undo?**). A phone can remove only its own waiting songs (✕, then confirm). The phone's screen stays on while the page is open. When your song is next, a banner pops up (and the phone buzzes): "You're up next!", then "It's your turn!". Only the TV can remove players.
+From the top, the page shows: who's singing (with cheer buttons during a song), tonight's top 3, the queue, who's singing, and the search. A **🔍 Add a song** button jumps to the search. After adding, the phone says your place in line; added the wrong song? Tap its ✓ (then **Undo?**). A phone can remove only its own waiting songs (✕, then confirm). The phone's screen stays on while the page is open. When your song is next, a banner pops up (and the phone buzzes): "You're up next!", then "It's your turn!" during the countdown (it goes away by itself once they start singing). Only the TV can remove players.
 
 Guest Wi-Fi networks often block devices from seeing each other. If the page won't open, use the main network.
 
@@ -140,3 +141,9 @@ Requirements: Android Gradle Plugin 9.5, Gradle 9.6, JDK 17. Min Android 7.0.
 - **Reset blocked videos:** clear the app's storage in Android settings (this also clears scores).
 
 Playback uses [android-youtube-player](https://github.com/PierfrancescoSoffritti/android-youtube-player). Lobby music and sound effects were made for this app.
+
+## License and credit
+
+Karaoke Night was created by **Adriano Alberto Borges Ramos**, with Flávio Alberto Belini Ramos and Ivana Audrey Belini da Silva as collaborators.
+
+The code is released under the [MIT License](LICENSE). You can use it, change it and share it, including in forks and in your own apps, as long as the copyright notice with Adriano Alberto Borges Ramos's name and the license text stay in every copy (the code itself or a substantial part of it). If you publish a fork, please also keep the "Created by" credit in the About screen and a link back to this repository.

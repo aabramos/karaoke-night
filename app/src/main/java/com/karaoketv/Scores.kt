@@ -178,10 +178,13 @@ data class JudgeCard(val face: String, val name: String, val points: Double, val
 }
 
 /**
- * The crowd's hype during one song, from -1 to +1: 🔥 😍 👏 🎉 😂 push it up, 😴 🍅 push it down,
- * and it slowly drifts back to 0, so only a room that keeps at it reaches an end (one phone alone
- * can't: phones may cheer once every [CHEER_GAP_MS]). Reaching +1 ([full]) gives [BONUS] points and
- * a 🔥; reaching -1 ([booed]) takes [BONUS] away and shows a 🍅. Either way it then stays there.
+ * The crowd's hype during one song, from -1 to +1: 🔥 😍 👏 🎉 😂 push it up, 😴 🍅 push it down.
+ * It holds while the room keeps cheering and only drifts back to 0, slowly, once nobody has sent
+ * anything for [HOLD_MS]. At a small party (up to [SMALL_ROOM] phones) every cheer counts fully,
+ * so one phone can fill it in about a minute of steady cheering; in a bigger room each cheer counts
+ * a little less, so one superfan can't do it alone, but the whole room still gets there quickly.
+ * Reaching +1 ([full]) gives [BONUS] points
+ * and a 🔥; reaching -1 ([booed]) takes [BONUS] away and shows a 🍅. Either way it then stays there.
  */
 class Hype {
     var level = 0.0
@@ -191,37 +194,55 @@ class Hype {
     var booed = false
         private set
     private var last = 0L
+    private var lastCheer = 0L
 
     /** Points for the score: +[BONUS], -[BONUS] or 0. */
     val points: Int get() = if (full) BONUS else if (booed) -BONUS else 0
 
     private val done get() = full || booed
 
-    fun reset() { level = 0.0; full = false; booed = false; last = 0L }
+    fun reset() { level = 0.0; full = false; booed = false; last = 0L; lastCheer = 0L }
 
-    /** The level at [now], after drifting back towards 0 since the last update. */
+    /** The level at [now], after drifting back towards 0 for the time since the last cheer, minus [HOLD_MS]. */
     fun at(now: Long): Double {
         if (!done && last > 0) {
-            val drift = DRAIN_PER_S * (now - last) / 1000.0
+            val quietFrom = maxOf(last, lastCheer + HOLD_MS)       // the bar holds for HOLD_MS after each cheer
+            val drift = DRAIN_PER_S * (now - quietFrom).coerceAtLeast(0L) / 1000.0
             level = if (level > 0) (level - drift).coerceAtLeast(0.0) else (level + drift).coerceAtMost(0.0)
         }
         last = now
         return if (full) 1.0 else if (booed) -1.0 else level
     }
 
-    /** A cheer at [now]: true if this one took the bar to either end. */
-    fun cheer(now: Long, positive: Boolean): Boolean {
+    /** While the song is paused the bar doesn't drift: the time since the last update doesn't count. */
+    fun freeze(now: Long) {
+        if (last > 0) { lastCheer += now - last; last = now }
+    }
+
+    /** A cheer at [now], with [room] phones on the party page (0: unknown): true if it took the bar to either end. */
+    fun cheer(now: Long, positive: Boolean, room: Int = 0): Boolean {
         if (done) return false
         at(now)
-        level = (level + if (positive) PER_CHEER else -PER_CHEER).coerceIn(-1.0, 1.0)
+        lastCheer = now
+        val step = PER_CHEER * weight(room)
+        level = (level + if (positive) step else -step).coerceIn(-1.0, 1.0)
         if (level >= 1.0) { full = true; return true }
         if (level <= -1.0) { booed = true; return true }
         return false
     }
 
     companion object {
-        const val PER_CHEER = 0.06
-        const val DRAIN_PER_S = 0.03
+        /** How far one cheer moves the bar at a small party: 25 fill it (one phone cheering every 3 s: 75 s). */
+        const val PER_CHEER = 0.04
+        /** Up to this many phones, every cheer counts fully. */
+        const val SMALL_ROOM = 3
+
+        /** How much one cheer counts with [room] phones: 1 up to [SMALL_ROOM], then √(3/room) (20 phones: 0.39). */
+        fun weight(room: Int): Double = if (room <= SMALL_ROOM) 1.0 else Math.sqrt(SMALL_ROOM.toDouble() / room)
+        /** After each cheer the bar holds this long before it starts drifting back. */
+        const val HOLD_MS = 10_000L
+        /** Then it drifts back by this much per second (a half-full bar takes 50 s to empty). */
+        const val DRAIN_PER_S = 0.01
         /** Points for reaching either end (the score stays within its band: 65 to 100 for a finished song). */
         const val BONUS = 3
     }
