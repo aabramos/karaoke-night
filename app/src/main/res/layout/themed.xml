@@ -127,7 +127,7 @@
                 android:layout_height="46dp"
                 android:layout_weight="1"
                 android:background="@drawable/field_bg"
-                android:hint="＋ New singer…"
+                android:hint="＋ New singer: type a name, then Done"
                 android:imeOptions="actionDone|flagNoExtractUi"
                 android:importantForAutofill="no"
                 android:inputType="textPersonName|textCapWords"
@@ -137,14 +137,6 @@
                 android:paddingEnd="18dp"
                 android:textColor="@color/text_main"
                 android:textSize="16sp" />
-
-            <TextView
-                android:id="@+id/themeAddSinger"
-                style="@style/TvButton"
-                android:layout_height="46dp"
-                android:layout_marginStart="10dp"
-                android:minWidth="0dp"
-                android:text="＋ Add" />
         </LinearLayout>
 
         <!-- 3. How many songs, and go -->

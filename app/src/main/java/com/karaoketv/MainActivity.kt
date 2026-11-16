@@ -321,6 +321,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         click(R.id.qrCard) { showBigQr() }
         click(R.id.bigQrClose) { hideBigQr() }
         click(R.id.btnSettings) { showSettings() }
+        click(R.id.btnClearQueue) { askClearQueue() }
         setupThemed()
         click(R.id.volumeDone) { hideSettings() }
         click(R.id.volumeMusic) {
@@ -609,12 +610,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
         if (text.isNullOrEmpty()) return
         when (requestCode) {
-            REQ_VOICE -> if (mode == Mode.LOBBY && !anyOverlayOpen()) lobbyBrowser.searchFor(text.take(80))
-            REQ_THEME_VOICE -> if (themeLayer.isShown) {
-                findViewById<EditText>(R.id.themeInput).setText(text.take(40))
-                themedStatus("")
-                findViewById<View>(R.id.themeGo).requestFocus()
-            }
+            REQ_VOICE -> lobbyVoice.done(text.take(lobbyVoice.maxLength))
+            REQ_THEME_VOICE -> themeVoice.done(text.take(themeVoice.maxLength))
         }
     }
 
@@ -669,7 +666,11 @@ class MainActivity : Activity(), PartyBackend.Listener {
         // Overlays first, topmost first (a confirmation sheet can sit on top of the picker)
         if (sheetLayer.isShown) { if (back) { if (first) cancelSheet(); return true }; return super.dispatchKeyEvent(e) }
         if (pickerLayer.isShown) { if (back) { if (first) pickerBack(); return true }; return super.dispatchKeyEvent(e) }
-        if (themeLayer.isShown) { if (back) { if (first) hideThemed(); return true }; return super.dispatchKeyEvent(e) }
+        if (themeLayer.isShown) {
+            if (back) { if (first) { if (voice === themeVoice) stopListening() else hideThemed() }; return true }
+            if (code == KeyEvent.KEYCODE_SEARCH || code == KeyEvent.KEYCODE_VOICE_ASSIST) { if (first) voiceSearch(themeVoice); return true }
+            return super.dispatchKeyEvent(e)
+        }
         if (achLayer.isShown) {
             if (back) { if (first) hideSinger(); return true }
             // ▲▼ scroll the list; the focus stays on Back
@@ -688,7 +689,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
         when (mode) {
             Mode.LOBBY -> {
-                if (back) { if (first) { if (recognizer != null) stopListening() else lobbyBack() }; return true }
+                if (back) { if (first) { if (voice != null) stopListening() else lobbyBack() }; return true }
                 if (code == KeyEvent.KEYCODE_SEARCH || code == KeyEvent.KEYCODE_VOICE_ASSIST) { if (first) voiceSearch(); return true }
                 return super.dispatchKeyEvent(e)
             }
@@ -832,7 +833,12 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val items = queue.snapshot()
         renderQueueList(findViewById(R.id.lobbyQueueList), items, 30, fallback = findViewById(R.id.btnStart), guide = true)
         findViewById<TextView>(R.id.lobbyQueueTitle).text =
-            (if (items.isEmpty()) "UP NEXT" else "UP NEXT · ${items.size}") + if (queue.fair) "  ·  ⚖️ FAIR" else ""
+            (if (items.isEmpty()) "UP NEXT" else "UP NEXT · ${items.size}") + if (queue.fair) " · ⚖️" else ""
+        findViewById<View>(R.id.btnClearQueue).let { clear ->
+            val had = clear.isFocused
+            clear.visibility = if (items.isNotEmpty() && mode == Mode.LOBBY) View.VISIBLE else View.GONE
+            if (had && !clear.isShown) lobbyBrowser.focusFirst()
+        }
         val start = findViewById<TextView>(R.id.btnStart)
         val wasFocused = start.isFocused
         start.visibility = if (items.isNotEmpty() && mode == Mode.LOBBY) View.VISIBLE else View.GONE
@@ -875,6 +881,25 @@ class MainActivity : Activity(), PartyBackend.Listener {
         textSize = 12f
         setTextColor(getColor(R.color.text_dim))
         setPadding(px(6), px(8), px(6), px(4))
+    }
+
+    /** 🗑 on Up Next: asks first, since it also takes out the songs guests added from their phones. */
+    private fun askClearQueue() {
+        val n = queue.size
+        if (n == 0) return
+        val phones = queue.snapshot().count { it.fromPhone }
+        showSheet(
+            "Clear the queue?",
+            "All $n waiting song${if (n == 1) "" else "s"} will be taken out" +
+                (if (phones > 0) ", including $phones added from phones." else ".") + " The hall of fame isn't touched.",
+            listOf(
+                "🗑 Clear the queue" to {
+                    val gone = queue.clear()
+                    if (gone > 0) toast("🗑 Queue cleared: $gone song${if (gone == 1) "" else "s"} taken out")
+                },
+                "Cancel" to {},
+            )
+        )
     }
 
     private fun queueItemMenu(item: QueueItem) {
@@ -1182,8 +1207,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         click(R.id.btnTheme) { showThemed() }
         click(R.id.themeCancel) { hideThemed() }
         click(R.id.themeGo) { themedGo() }
-        click(R.id.themeVoice) { themedVoice() }
-        click(R.id.themeAddSinger) { themedAddSinger() }
+        click(R.id.themeVoice) { voiceSearch(themeVoice) }
         click(R.id.themeLess) { themedStep(-1) }
         click(R.id.themeMore) { themedStep(+1) }
         findViewById<EditText>(R.id.themeInput).setOnEditorActionListener { _, _, _ ->
@@ -1218,6 +1242,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     private fun hideThemed() {
+        if (voice === themeVoice) stopListening()
         themeRun++
         themeBusy = false
         hideKeyboard()
@@ -1261,27 +1286,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     /** Singer buttons, the song count and the main button. */
     private fun renderThemed() {
-        val box = findViewById<LinearLayout>(R.id.themeSingers)
-        val focused = (currentFocus as? TextView)?.takeIf { it.parent === box }?.tag as? String
-        box.removeAllViews()
-        val players = themedPlayers()
-        players.forEach { name ->
-            val chosen = themeChosen.any { it.equals(name, ignoreCase = true) }
-            box.addView(styledButton(if (chosen) "✓ $name" else name, false).apply {
-                tag = name
-                minWidth = px(96)
-                maxWidth = px(170)
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                isSelected = chosen
-                contentDescription = if (chosen) "$name, singing" else name
-                setOnClickListener { themedToggle(name) }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(46)).apply { setMargins(0, px(2), px(8), px(2)) })
-        }
-        if (players.isEmpty()) box.addView(label("No players yet: add some below 👇", 15f, R.color.text_dim))
-        focused?.let { name ->
-            for (i in 0 until box.childCount) if ((box.getChildAt(i).tag as? String) == name) { box.getChildAt(i).requestFocus(); break }
-        }
-
+        renderThemedSingers()
         val room = themedRoom()
         if (!themeCountTouched) themeCount = ThemedParty.defaultCount(themeChosen.size, room)
         themeCount = themeCount.coerceIn(minOf(ThemedParty.MIN_SONGS, room), room)
@@ -1297,6 +1302,39 @@ class MainActivity : Activity(), PartyBackend.Listener {
             alpha = if (themeBusy || room == 0) 0.55f else 1f
         }
         if (room == 0 && !themeBusy) themedStatus("The queue is full (${PartyQueue.MAX} songs). Sing a few first!")
+    }
+
+    /**
+     * The singer buttons. When the same people are listed, the buttons are only re-labelled:
+     * rebuilding them would take the remote's focus away for a moment (it flashed on the theme box).
+     */
+    private fun renderThemedSingers() {
+        val box = findViewById<LinearLayout>(R.id.themeSingers)
+        val players = themedPlayers()
+        val shown = (0 until box.childCount).map { box.getChildAt(it).tag as? String }
+        if (players.isNotEmpty() && shown == players) {
+            for (i in 0 until box.childCount) styleSingerChip(box.getChildAt(i) as TextView, players[i])
+            return
+        }
+        box.removeAllViews()
+        players.forEach { name ->
+            box.addView(styledButton(name, false).apply {
+                tag = name
+                minWidth = px(96)
+                maxWidth = px(170)
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                styleSingerChip(this, name)
+                setOnClickListener { themedToggle(name) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(46)).apply { setMargins(0, px(2), px(8), px(2)) })
+        }
+        if (players.isEmpty()) box.addView(label("No players yet: add some below 👇", 15f, R.color.text_dim))
+    }
+
+    private fun styleSingerChip(chip: TextView, name: String) {
+        val chosen = themeChosen.any { it.equals(name, ignoreCase = true) }
+        chip.text = if (chosen) "✓ $name" else name
+        chip.isSelected = chosen
+        chip.contentDescription = if (chosen) "$name, singing" else name
     }
 
     private fun themedToggle(name: String) {
@@ -1316,6 +1354,10 @@ class MainActivity : Activity(), PartyBackend.Listener {
         hideKeyboard()
         if (name == null) { field.requestFocus(); return }
         val existing = themedPlayers().firstOrNull { it.equals(name, ignoreCase = true) }
+        if (existing == null && themeNew.size >= ThemedParty.MAX_SONGS) {      // more singers than songs could ever be dealt
+            themedStatus("That's plenty of new singers for one party!")
+            return
+        }
         val n = existing ?: name.also { themeNew.add(0, it) }
         if (themeChosen.none { it.equals(n, ignoreCase = true) }) themeChosen += n
         sfx.play(sfx.pop, 0.4f)
@@ -1338,21 +1380,6 @@ class MainActivity : Activity(), PartyBackend.Listener {
 
     private fun themedStatus(msg: String) {
         findViewById<TextView>(R.id.themeStatus).text = msg
-    }
-
-    /** The system's voice screen for the theme (the in-app listener writes into the search box). */
-    private fun themedVoice() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a theme")
-            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        try {
-            @Suppress("DEPRECATION")
-            startActivityForResult(intent, REQ_THEME_VOICE)
-        } catch (e: ActivityNotFoundException) {
-            themedStatus("Voice isn't available here. Type the theme instead.")
-            findViewById<View>(R.id.themeInput).requestFocus()
-        }
     }
 
     /**
@@ -1427,14 +1454,14 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val added = queue.addAll(dealt.map { (song, singer) ->
             QueueItem(song, singer, fromPhone = false, genres = Genres.detect(song.title, query), themed = true)
         })
-        if (added == 0) { themedStatus("Those songs are already in the queue. Try another theme!"); renderThemed(); return }
-        val used = dealt.take(added).map { it.second }.distinctBy { it.lowercase() }
+        if (added.isEmpty()) { themedStatus("Those songs are already in the queue. Try another theme!"); renderThemed(); return }
+        val used = added.map { it.singer }.distinctBy { it.lowercase() }
         board.rememberPlayers(used)
         hideThemed()
         sfx.play(sfx.pop, 0.7f)
         val people = if (used.size == 1) used[0] else "${used.size} singers"
-        toast("🎭 $theme: $added song${if (added == 1) "" else "s"} for $people" +
-            if (added < asked) " (all we could find)" else "")
+        toast("🎭 $theme: ${added.size} song${if (added.size == 1) "" else "s"} for $people" +
+            if (added.size < asked) " (all we could find)" else "")
         if (singNow) startNext() else if (queuePanel.isShown) panelListMode()
     }
 
@@ -1502,7 +1529,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             if (n == 0) "Last song in the queue. Add more! 📱" else "🎤 $n more waiting after this"
     }
 
-    // ---------- fair queue ----------
+    // ---- fair queue ----
 
     private fun toggleFair() {
         queue.fair = !queue.fair
@@ -1545,7 +1572,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     // Singing
     // =====================================================================================
 
-    // ---------- dedications ----------
+    // ---- dedications ----
 
     /** The song whose dedication has been shown (it's shown once, then the song starts). */
     private var dedicationShown = 0L
@@ -1961,7 +1988,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         afterSong()
     }
 
-    // ---------- queue panel (during a song) ----------
+    // ---- queue panel (during a song) ----
 
     private fun openPanel() {
         queuePanel.visibility = View.VISIBLE
@@ -2816,6 +2843,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val full = getString(R.string.search_hint)
         val short = getString(R.string.search_hint_short)
         box.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+            if (voice?.box == R.id.lobbySearch) return@addOnLayoutChangeListener   // "Listening…" stays
             val room = right - left - box.totalPaddingLeft - box.totalPaddingRight
             val hint = if (box.paint.measureText(full) <= room) full else short
             if (box.hint?.toString() != hint) box.hint = hint
@@ -2854,58 +2882,102 @@ class MainActivity : Activity(), PartyBackend.Listener {
         restoreFocus()
     }
 
-    // ---- voice search (remote's search/mic button or the 🎙 button) ----
+    // ---- voice (the remote's search/mic button or a 🎙 button): the lobby search and the themed party ----
+
+    /**
+     * Where spoken words go: the lobby's search box, or the 🎭 themed party's theme. Both use the
+     * same listener; [done] gets the final words.
+     */
+    private class VoiceTarget(
+        val button: Int, val box: Int, val maxLength: Int,
+        val listeningHint: String, val prompt: String, val requestCode: Int,
+        val done: (String) -> Unit,
+    )
+
+    private val lobbyVoice by lazy {
+        VoiceTarget(R.id.btnVoice, R.id.lobbySearch, 80, "🎙 Listening… say a song", "Say a song or an artist", REQ_VOICE) { text ->
+            if (mode == Mode.LOBBY && !anyOverlayOpen()) lobbyBrowser.searchFor(text)
+        }
+    }
+
+    private val themeVoice by lazy {
+        VoiceTarget(R.id.themeVoice, R.id.themeInput, 40, "🎙 Listening… say a theme", "Say a theme", REQ_THEME_VOICE) { text ->
+            if (themeLayer.isShown) {
+                findViewById<EditText>(R.id.themeInput).setText(text)
+                themedStatus("")
+                findViewById<View>(R.id.themeGo).requestFocus()
+            }
+        }
+    }
 
     private var recognizer: android.speech.SpeechRecognizer? = null
+    /** Who is listening now. */
+    private var voice: VoiceTarget? = null
+    /** Who asked for the microphone permission (kept apart: the system's question may stop the screen). */
+    private var micAskedFor: VoiceTarget? = null
+    /** The box's own hint and what was typed in it, put back when listening stops (if nothing was heard). */
+    private var voiceHint: CharSequence? = null
+    private var voiceTyped: String? = null
 
     /**
      * Listens with Android's speech recognizer inside the app (on TVs, through the remote's
-     * microphone), showing the words in the search box as they're heard. Asks for microphone
-     * permission the first time. Falls back to the system's voice screen if there's no recognizer.
+     * microphone), showing the words in the box as they're heard. Asks for microphone permission
+     * the first time. Falls back to the system's voice screen if there's no recognizer.
      */
-    private fun voiceSearch() {
-        if (recognizer != null) { stopListening(); return }          // pressed again: stop
+    private fun voiceSearch(target: VoiceTarget = lobbyVoice) {
+        if (recognizer != null) {                                   // pressed again: stop
+            val same = voice === target
+            stopListening()
+            if (same) return
+        }
         if (Build.VERSION.SDK_INT >= 23 &&
             checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
+            micAskedFor = target
             requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), REQ_MIC)
             return
         }
-        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) { voiceSearchViaApp(); return }
-        listen()
+        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) { voiceSearchViaApp(target); return }
+        listen(target)
     }
 
     @Deprecated("Platform permission callback; fine for a single permission")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode != REQ_MIC) return
+        val target = micAskedFor ?: lobbyVoice
+        micAskedFor = null
+        if (!findViewById<View>(target.box).isShown) return        // its screen closed meanwhile
         if (grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            if (android.speech.SpeechRecognizer.isRecognitionAvailable(this)) listen() else voiceSearchViaApp()
+            if (android.speech.SpeechRecognizer.isRecognitionAvailable(this)) listen(target) else voiceSearchViaApp(target)
         } else {
-            toast("🎙 Voice search needs the microphone. Type instead 👇")
-            focusSearchBox()
+            toast("🎙 Voice needs the microphone. Type instead 👇")
+            focusBox(target)
         }
     }
 
-    private fun listen() {
+    private fun listen(target: VoiceTarget) {
         val r = runCatching { android.speech.SpeechRecognizer.createSpeechRecognizer(this) }.getOrNull()
-            ?: return voiceSearchViaApp()
+            ?: return voiceSearchViaApp(target)
         recognizer = r
-        val box = findViewById<EditText>(R.id.lobbySearch)
+        voice = target
+        val box = findViewById<EditText>(target.box)
         r.setRecognitionListener(object : android.speech.RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                findViewById<View>(R.id.btnVoice).isSelected = true
+                findViewById<View>(target.button).isSelected = true
+                voiceHint = box.hint
+                voiceTyped = box.text.toString()
                 box.setText("")
-                box.hint = "🎙 Listening… say a song"
+                box.hint = target.listeningHint
             }
             override fun onPartialResults(partial: Bundle?) {
                 partial?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                    ?.let { box.setText(it.take(80)) }
+                    ?.let { box.setText(it.take(target.maxLength)) }
             }
             override fun onResults(results: Bundle?) {
                 val text = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()
                 stopListening()
-                if (!text.isNullOrEmpty() && mode == Mode.LOBBY) lobbyBrowser.searchFor(text.take(80))
+                if (!text.isNullOrEmpty()) target.done(text.take(target.maxLength))
             }
             override fun onError(error: Int) {
                 stopListening()
@@ -2913,9 +2985,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
                     android.speech.SpeechRecognizer.ERROR_NO_MATCH,
                     android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "🎙 Didn't catch that. Press 🎙 and try again"
                     android.speech.SpeechRecognizer.ERROR_NETWORK,
-                    android.speech.SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "🎙 Voice search needs the internet. Type instead"
-                    android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "🎙 Voice search needs the microphone"
-                    else -> "🎙 Voice search isn't working right now. Type instead"
+                    android.speech.SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "🎙 Voice needs the internet. Type instead"
+                    android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "🎙 Voice needs the microphone"
+                    else -> "🎙 Voice isn't working right now. Type instead"
                 })
             }
             override fun onBeginningOfSpeech() {}
@@ -2929,34 +3001,41 @@ class MainActivity : Activity(), PartyBackend.Listener {
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
-        runCatching { r.startListening(intent) }.onFailure { stopListening(); voiceSearchViaApp() }
+        runCatching { r.startListening(intent) }.onFailure { stopListening(); voiceSearchViaApp(target) }
     }
 
     private fun stopListening() {
         recognizer?.let { runCatching { it.cancel() }; runCatching { it.destroy() } }
         recognizer = null
-        findViewById<View>(R.id.btnVoice).isSelected = false
-        findViewById<EditText>(R.id.lobbySearch).hint = getString(R.string.search_hint)
+        val target = voice ?: return
+        voice = null
+        findViewById<View>(target.button).isSelected = false
+        val box = findViewById<EditText>(target.box)
+        voiceHint?.let { box.hint = it }
+        voiceTyped?.let { if (box.text.isEmpty()) box.setText(it) }
+        voiceHint = null
+        voiceTyped = null
     }
 
-    private fun focusSearchBox() {
-        val box = findViewById<EditText>(R.id.lobbySearch)
+    private fun focusBox(target: VoiceTarget) {
+        val box = findViewById<EditText>(target.box)
+        if (!box.isShown) return
         box.requestFocus()
         (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showSoftInput(box, 0)
     }
 
     /** The system's own voice screen (devices without an in-app recognizer). */
-    private fun voiceSearchViaApp() {
+    private fun voiceSearchViaApp(target: VoiceTarget) {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a song or an artist")
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, target.prompt)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         try {
             @Suppress("DEPRECATION")
-            startActivityForResult(intent, REQ_VOICE)
+            startActivityForResult(intent, target.requestCode)
         } catch (e: ActivityNotFoundException) {
-            toast("Voice search isn't available here. Type instead 👇")
-            focusSearchBox()
+            toast("🎙 Voice isn't available here. Type instead 👇")
+            focusBox(target)
         }
     }
 
@@ -3661,7 +3740,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     private fun hideAllOverlays() {
-        if (themeLayer.isShown) themeRun++                 // a themed search still running is dropped
+        if (themeLayer.isShown) { themeRun++; themeBusy = false }   // a themed search still running is dropped
+        if (voice === themeVoice) stopListening()
         listOf(pickerLayer, themeLayer, sheetLayer, boardLayer, qrLayer, volumeLayer, aboutLayer, achLayer).forEach { it.visibility = View.GONE }
         if (recapLayer.isShown) hideRecap()
         if (countryLayer.isShown) hideCountries()

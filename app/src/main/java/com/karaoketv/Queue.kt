@@ -79,20 +79,27 @@ class PartyQueue(private val main: Handler) {
     /**
      * A themed party's songs, added after what is already waiting (and placed by round when the
      * fair queue is on). Skips songs already queued; no per-singer limit, since the TV chose them.
-     * Returns how many fit (the queue holds [MAX]).
+     * Returns the ones that went in (the queue holds [MAX]).
      */
-    fun addAll(list: List<QueueItem>): Int {
-        var added = 0
+    fun addAll(list: List<QueueItem>): List<QueueItem> {
+        val added = ArrayList<QueueItem>()
         synchronized(items) {
             for (item in list) {
                 if (items.size >= MAX) break
                 if (items.any { it.song.id == item.song.id } || current?.song?.id == item.song.id) continue
-                items.add(item); added++
+                items.add(item); added += item
             }
-            if (added > 0 && fair) rebalance()
+            if (added.isNotEmpty() && fair) rebalance()
         }
-        if (added > 0) changed()
+        if (added.isNotEmpty()) changed()
         return added
+    }
+
+    /** Empties the queue (the song being sung stays). Returns how many songs were taken out. */
+    fun clear(): Int {
+        val n = synchronized(items) { items.size.also { items.clear(); pinned.clear(); deferred.clear() } }
+        if (n > 0) changed()
+        return n
     }
 
     /** 1-based position of an item, or 0. */

@@ -199,10 +199,36 @@
                 android:orientation="vertical"
                 android:padding="12dp">
 
-                <TextView
-                    android:id="@+id/lobbyQueueTitle"
-                    style="@style/Label"
-                    android:text="UP NEXT" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/lobbyQueueTitle"
+                        style="@style/Label"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="UP NEXT" />
+
+                    <!-- Empties the queue (after asking); shown only when songs are waiting. Just the
+                         icon: the title beside it ("UP NEXT · 12 · ⚖️") needs the rest of the row -->
+                    <TextView
+                        android:id="@+id/btnClearQueue"
+                        style="@style/TvButton"
+                        android:layout_width="40dp"
+                        android:layout_height="32dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="0dp"
+                        android:paddingEnd="0dp"
+                        android:contentDescription="Clear the queue"
+                        android:text="🗑"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+                </LinearLayout>
 
                 <ScrollView
                     android:layout_width="match_parent"
