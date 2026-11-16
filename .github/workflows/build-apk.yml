@@ -1,10 +1,7 @@
-# Builds the app in the cloud, so you don't need Android Studio.
-# Push this folder to a GitHub repository; every push to main produces a release with the APK.
 # Optional repository secrets (Settings → Secrets and variables → Actions):
 #   YOUTUBE_API_KEY                         official YouTube search (otherwise key-less search is used)
 #   KEYSTORE_BASE64, KEYSTORE_PASSWORD,
-#   KEY_ALIAS, KEY_PASSWORD                 sign every build with the same key, so updates install
-#                                           over the old version without uninstalling it first
+#   KEY_ALIAS, KEY_PASSWORD                 
 name: Build APK
 
 on:
@@ -17,12 +14,9 @@ permissions:
 
 jobs:
   build:
-    # GitHub's default machine (Ubuntu 24.04 or 26.04 during the 2026 switch). The SDK step below
-    # works on either: it downloads Google's Android tools if a machine doesn't have them.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -30,7 +24,6 @@ jobs:
 
       # GitHub's runner usually has the Android SDK already; if an image ever doesn't, the official
       # command-line tools are downloaded from Google. Then: accept licenses, add what the app needs.
-      # (The old android-actions/setup-android action fails on the removed "tools" package.)
       - name: Prepare Android SDK
         run: |
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/android-sdk}}"
