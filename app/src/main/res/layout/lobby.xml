@@ -21,7 +21,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="sans-serif-black"
-            android:letterSpacing="0.05"
+            android:letterSpacing="0.03"
             android:shadowColor="@color/neon_pink"
             android:shadowRadius="22"
             android:text="🎤 KARAOKE"
@@ -33,7 +33,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:fontFamily="sans-serif-black"
-            android:letterSpacing="0.05"
+            android:letterSpacing="0.03"
             android:shadowColor="@color/neon_cyan"
             android:shadowRadius="22"
             android:text="NIGHT"
@@ -44,8 +44,8 @@
             android:id="@+id/lobbySearch"
             android:layout_width="0dp"
             android:layout_height="52dp"
-            android:layout_marginStart="22dp"
-            android:layout_marginEnd="10dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="8dp"
             android:layout_weight="1"
             android:background="@drawable/field_bg"
             android:hint="@string/search_hint"
@@ -54,8 +54,8 @@
             android:inputType="text"
             android:maxLength="80"
             android:maxLines="1"
-            android:paddingStart="22dp"
-            android:paddingEnd="22dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
             android:textColor="@color/text_main"
             android:textSize="18sp" />
 
@@ -69,14 +69,14 @@
         <TextView
             android:id="@+id/btnCountry"
             style="@style/IconButton"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="6dp"
             android:contentDescription="Party country"
             android:text="🌍" />
 
         <TextView
             android:id="@+id/btnBoard"
             style="@style/IconButton"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="6dp"
             android:contentDescription="Hall of fame"
             android:text="🏆" />
 
@@ -84,15 +84,23 @@
         <TextView
             android:id="@+id/btnRecap"
             style="@style/IconButton"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="6dp"
             android:contentDescription="Close the night: tonight's awards"
             android:text="🌙" />
+
+        <!-- Themed party: a theme and some singers fill the queue in fair turns (TV only) -->
+        <TextView
+            android:id="@+id/btnTheme"
+            style="@style/IconButton"
+            android:layout_marginStart="6dp"
+            android:contentDescription="Themed party: fill the queue with songs on a theme"
+            android:text="🎭" />
 
         <!-- Settings: volumes, lobby music, fair queue, About -->
         <TextView
             android:id="@+id/btnSettings"
             style="@style/IconButton"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="6dp"
             android:contentDescription="Settings: volume, lobby music, fair queue and About"
             android:text="⚙️" />
 
@@ -101,7 +109,7 @@
         <TextClock
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="12dp"
             android:focusable="false"
             android:fontFamily="sans-serif-medium"
             android:format12Hour="h:mm a"

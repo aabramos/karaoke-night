@@ -197,6 +197,11 @@
         android:visibility="gone" />
 
     <include
+        android:id="@+id/themeLayer"
+        layout="@layout/themed"
+        android:visibility="gone" />
+
+    <include
         android:id="@+id/sheetLayer"
         layout="@layout/sheet"
         android:visibility="gone" />

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Karaoke Night</string>
-    <string name="search_hint">🔍  Song or artist…</string>
+    <string name="search_hint">🔍 Song or artist…</string>
+    <!-- When the box is narrow (a 12-hour clock with AM/PM takes some of its room) -->
+    <string name="search_hint_short">🔍 Search…</string>
 </resources>

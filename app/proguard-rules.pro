@@ -4,6 +4,6 @@
 }
 -keep class com.pierfrancescosoffritti.androidyoutubeplayer.core.player.** { *; }
 
-# Custom views referenced from XML are kept automatically by Android Asset Packaging Tool rules.
+# Custom views referenced from XML are kept automatically by AAPT rules.
 -repackageclasses
 -allowaccessmodification

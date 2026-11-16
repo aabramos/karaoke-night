@@ -28,6 +28,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -81,6 +82,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private lateinit var aboutLayer: View
     private lateinit var achLayer: View
     private lateinit var pickerLayer: View
+    private lateinit var themeLayer: View
     private lateinit var sheetLayer: View
     private lateinit var qrLayer: View
     private lateinit var countryLayer: View
@@ -251,6 +253,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         aboutLayer = findViewById(R.id.aboutLayer)
         achLayer = findViewById(R.id.achLayer)
         pickerLayer = findViewById(R.id.pickerLayer)
+        themeLayer = findViewById(R.id.themeLayer)
         sheetLayer = findViewById(R.id.sheetLayer)
         qrLayer = findViewById(R.id.qrLayer)
         countryLayer = findViewById(R.id.countryLayer)
@@ -299,6 +302,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         click(R.id.aboutClose) { hideAbout() }
         click(R.id.aboutOpen) { openProjectPage() }
         click(R.id.btnVoice) { voiceSearch() }
+        fitSearchHint()
         click(R.id.btnCountry) { showCountries() }
         findViewById<EditText>(R.id.countryFilter).apply {
             addTextChangedListener(object : android.text.TextWatcher {
@@ -317,6 +321,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         click(R.id.qrCard) { showBigQr() }
         click(R.id.bigQrClose) { hideBigQr() }
         click(R.id.btnSettings) { showSettings() }
+        setupThemed()
         click(R.id.volumeDone) { hideSettings() }
         click(R.id.volumeMusic) {
             music.enabled = !music.enabled
@@ -600,9 +605,17 @@ class MainActivity : Activity(), PartyBackend.Listener {
     @Deprecated("Activity result API from the platform; fine for a single voice-search request")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_VOICE || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
         val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
-        if (!text.isNullOrEmpty() && mode == Mode.LOBBY) lobbyBrowser.searchFor(text.take(80))
+        if (text.isNullOrEmpty()) return
+        when (requestCode) {
+            REQ_VOICE -> if (mode == Mode.LOBBY && !anyOverlayOpen()) lobbyBrowser.searchFor(text.take(80))
+            REQ_THEME_VOICE -> if (themeLayer.isShown) {
+                findViewById<EditText>(R.id.themeInput).setText(text.take(40))
+                themedStatus("")
+                findViewById<View>(R.id.themeGo).requestFocus()
+            }
+        }
     }
 
     override fun onTrimMemory(level: Int) {
@@ -656,6 +669,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         // Overlays first, topmost first (a confirmation sheet can sit on top of the picker)
         if (sheetLayer.isShown) { if (back) { if (first) cancelSheet(); return true }; return super.dispatchKeyEvent(e) }
         if (pickerLayer.isShown) { if (back) { if (first) pickerBack(); return true }; return super.dispatchKeyEvent(e) }
+        if (themeLayer.isShown) { if (back) { if (first) hideThemed(); return true }; return super.dispatchKeyEvent(e) }
         if (achLayer.isShown) {
             if (back) { if (first) hideSinger(); return true }
             // ▲▼ scroll the list; the focus stays on Back
@@ -1149,6 +1163,282 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     // =====================================================================================
+    // 🎭 Themed party: a theme and some singers fill the queue in fair turns (TV only)
+    // =====================================================================================
+
+    /** Names added in this pop-up that aren't saved players yet (shown first). */
+    private val themeNew = ArrayList<String>()
+    /** Who sings, in the order they were picked. */
+    private val themeChosen = ArrayList<String>()
+    /** The idea picked last, and the search it stands for (used while the box still shows its name). */
+    private var themeIdea: Pair<String, String>? = null
+    private var themeCount = 0
+    private var themeCountTouched = false
+    /** Bumped when the pop-up closes, so a search still running is ignored when it comes back. */
+    private var themeRun = 0
+    private var themeBusy = false
+
+    private fun setupThemed() {
+        click(R.id.btnTheme) { showThemed() }
+        click(R.id.themeCancel) { hideThemed() }
+        click(R.id.themeGo) { themedGo() }
+        click(R.id.themeVoice) { themedVoice() }
+        click(R.id.themeAddSinger) { themedAddSinger() }
+        click(R.id.themeLess) { themedStep(-1) }
+        click(R.id.themeMore) { themedStep(+1) }
+        findViewById<EditText>(R.id.themeInput).setOnEditorActionListener { _, _, _ ->
+            hideKeyboard()
+            findViewById<View>(R.id.themeGo).requestFocus()
+            true
+        }
+        findViewById<EditText>(R.id.themeNewSinger).setOnEditorActionListener { _, _, _ -> themedAddSinger(); true }
+    }
+
+    private fun showThemed() {
+        if (themeLayer.isShown) return
+        overlayReturnFocus = currentFocus
+        themeNew.clear()
+        themeChosen.clear()
+        themeIdea = null
+        themeCountTouched = false
+        themeBusy = false
+        // Tonight's singers (and whoever is waiting) start out chosen
+        val tonight = sungTonight().keys + waitingPeople()
+        themeChosen += themedPlayers().filter { it.lowercase() in tonight }
+        findViewById<EditText>(R.id.themeInput).setText("")
+        findViewById<EditText>(R.id.themeNewSinger).setText("")
+        themedStatus("")
+        renderThemedIdeas()
+        renderThemed()
+        themeLayer.visibility = View.VISIBLE
+        popIn(themeLayer)
+        lockFocus()
+        val ideas = findViewById<LinearLayout>(R.id.themeIdeas)
+        (if (ideas.childCount > 0) ideas.getChildAt(0) else findViewById(R.id.themeInput)).requestFocus()
+    }
+
+    private fun hideThemed() {
+        themeRun++
+        themeBusy = false
+        hideKeyboard()
+        themeLayer.visibility = View.GONE
+        restoreFocus()
+    }
+
+    /** People with songs waiting in the queue (lower-case). */
+    private fun waitingPeople(): Set<String> =
+        queue.snapshot().flatMap { it.singer.split(DUET_JOIN) }.map { it.lowercase() }.toSet()
+
+    /** New names first, then whoever is singing or waiting, then the saved players. */
+    private fun themedPlayers(): List<String> =
+        (themeNew + (queue.current?.singer?.split(DUET_JOIN) ?: emptyList()) +
+            queue.snapshot().flatMap { it.singer.split(DUET_JOIN) } + board.players())
+            .filter { it.isNotBlank() }.distinctBy { it.lowercase() }
+
+    private fun themedRoom() = ThemedParty.maxCount(PartyQueue.MAX - queue.size)
+
+    /** Theme ideas for the party's country (no duets: a themed party is solo). */
+    private fun renderThemedIdeas() {
+        val box = findViewById<LinearLayout>(R.id.themeIdeas)
+        box.removeAllViews()
+        ThemedParty.ideas(Countries.picks(search.country)).forEach { idea ->
+            box.addView(styledButton(idea.first, false).apply {
+                minWidth = 0
+                textSize = 15f
+                setPadding(px(16), 0, px(16), 0)
+                setOnClickListener { themedPickIdea(idea) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(42)).apply { setMargins(0, px(2), px(8), px(2)) })
+        }
+    }
+
+    private fun themedPickIdea(idea: Pair<String, String>) {
+        themeIdea = idea
+        findViewById<EditText>(R.id.themeInput).setText(ThemedParty.ideaName(idea.first))
+        sfx.play(sfx.pop, 0.4f)
+        themedStatus("")
+        findViewById<View>(R.id.themeGo).requestFocus()
+    }
+
+    /** Singer buttons, the song count and the main button. */
+    private fun renderThemed() {
+        val box = findViewById<LinearLayout>(R.id.themeSingers)
+        val focused = (currentFocus as? TextView)?.takeIf { it.parent === box }?.tag as? String
+        box.removeAllViews()
+        val players = themedPlayers()
+        players.forEach { name ->
+            val chosen = themeChosen.any { it.equals(name, ignoreCase = true) }
+            box.addView(styledButton(if (chosen) "✓ $name" else name, false).apply {
+                tag = name
+                minWidth = px(96)
+                maxWidth = px(170)
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                isSelected = chosen
+                contentDescription = if (chosen) "$name, singing" else name
+                setOnClickListener { themedToggle(name) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, px(46)).apply { setMargins(0, px(2), px(8), px(2)) })
+        }
+        if (players.isEmpty()) box.addView(label("No players yet: add some below 👇", 15f, R.color.text_dim))
+        focused?.let { name ->
+            for (i in 0 until box.childCount) if ((box.getChildAt(i).tag as? String) == name) { box.getChildAt(i).requestFocus(); break }
+        }
+
+        val room = themedRoom()
+        if (!themeCountTouched) themeCount = ThemedParty.defaultCount(themeChosen.size, room)
+        themeCount = themeCount.coerceIn(minOf(ThemedParty.MIN_SONGS, room), room)
+        findViewById<TextView>(R.id.themeCount).text = themeCount.toString()
+        findViewById<View>(R.id.themeLess).apply { isEnabled = themeCount > ThemedParty.MIN_SONGS; alpha = if (isEnabled) 1f else 0.35f }
+        findViewById<View>(R.id.themeMore).apply { isEnabled = themeCount < room; alpha = if (isEnabled) 1f else 0.35f }
+        findViewById<TextView>(R.id.themeGo).apply {
+            text = when {
+                themeBusy -> "🔎 Finding songs…"
+                mode == Mode.LOBBY && queue.isEmpty() -> "🎭 Start the party!"
+                else -> "🎭 Fill the queue"
+            }
+            alpha = if (themeBusy || room == 0) 0.55f else 1f
+        }
+        if (room == 0 && !themeBusy) themedStatus("The queue is full (${PartyQueue.MAX} songs). Sing a few first!")
+    }
+
+    private fun themedToggle(name: String) {
+        if (themeBusy) return
+        val i = themeChosen.indexOfFirst { it.equals(name, ignoreCase = true) }
+        if (i >= 0) themeChosen.removeAt(i) else themeChosen += name
+        sfx.play(sfx.pop, 0.4f)
+        themedStatus("")
+        renderThemed()
+    }
+
+    /** A new singer from the box: shown first and chosen straight away. */
+    private fun themedAddSinger() {
+        val field = findViewById<EditText>(R.id.themeNewSinger)
+        val name = cleanName(field.text.toString())
+        field.setText("")
+        hideKeyboard()
+        if (name == null) { field.requestFocus(); return }
+        val existing = themedPlayers().firstOrNull { it.equals(name, ignoreCase = true) }
+        val n = existing ?: name.also { themeNew.add(0, it) }
+        if (themeChosen.none { it.equals(n, ignoreCase = true) }) themeChosen += n
+        sfx.play(sfx.pop, 0.4f)
+        themedStatus("")
+        renderThemed()
+        val box = findViewById<LinearLayout>(R.id.themeSingers)
+        for (i in 0 until box.childCount) if ((box.getChildAt(i).tag as? String) == n) {
+            box.getChildAt(i).requestFocus()
+            (box.parent as? HorizontalScrollView)?.post { box.getChildAt(i)?.let { v -> (box.parent as? HorizontalScrollView)?.smoothScrollTo(v.left, 0) } }
+            break
+        }
+    }
+
+    private fun themedStep(by: Int) {
+        if (themeBusy) return
+        themeCountTouched = true
+        themeCount += by
+        renderThemed()
+    }
+
+    private fun themedStatus(msg: String) {
+        findViewById<TextView>(R.id.themeStatus).text = msg
+    }
+
+    /** The system's voice screen for the theme (the in-app listener writes into the search box). */
+    private fun themedVoice() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a theme")
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQ_THEME_VOICE)
+        } catch (e: ActivityNotFoundException) {
+            themedStatus("Voice isn't available here. Type the theme instead.")
+            findViewById<View>(R.id.themeInput).requestFocus()
+        }
+    }
+
+    /**
+     * Searches the theme (a few ways, until there are enough different songs), picks the songs and
+     * deals them to the singers in rounds, after whatever is already waiting.
+     */
+    private fun themedGo() {
+        if (themeBusy) return
+        val theme = findViewById<EditText>(R.id.themeInput).text.toString().replace(Regex("\\s+"), " ").trim().take(40)
+        val room = themedRoom()
+        when {
+            room == 0 -> { themedStatus("The queue is full (${PartyQueue.MAX} songs). Sing a few first!"); return }
+            theme.isEmpty() -> {
+                themedStatus("Type a theme, or pick one of the ideas.")
+                findViewById<View>(R.id.themeInput).requestFocus(); return
+            }
+            themeChosen.isEmpty() -> {
+                themedStatus("Pick at least one singer.")
+                findViewById<LinearLayout>(R.id.themeSingers).getChildAt(0)?.takeIf { it.isFocusable }?.requestFocus()
+                    ?: findViewById<View>(R.id.themeNewSinger).requestFocus()
+                return
+            }
+            !net.online -> { themedStatus("📡 Themed parties need the internet. Check the Wi-Fi and try again."); return }
+        }
+        val query = themeIdea?.takeIf { ThemedParty.ideaName(it.first).equals(theme, ignoreCase = true) }?.second ?: theme
+        val count = themeCount.coerceIn(1, room)
+        val singers = themeChosen.toList()
+        val avoid = queue.snapshot().map { it.song } + listOfNotNull(queue.current?.song) +
+            history.tonight().map { Song(it.id, "", "", "") } +               // the same videos sung tonight…
+            board.tonightAll().map { Song("", it.song, "", "") }              // …and other versions of those songs
+        val run = ++themeRun
+        themeBusy = true
+        hideKeyboard()
+        themedStatus("🔎 Looking for “$theme” songs…")
+        renderThemed()
+        io.execute {
+            val found = LinkedHashMap<String, Song>()
+            var problem: Exception? = null
+            for (q in ThemedParty.queries(query)) {
+                if (run != themeRun) return@execute
+                try {
+                    search.search(q).forEach { found.putIfAbsent(it.id, it) }
+                    problem = null
+                } catch (e: Exception) {
+                    problem = e
+                    if (e !is SearchException) break        // no internet: the next searches would fail too
+                }
+                if (ThemedParty.fresh(found.values.toList(), avoid).size >= count * 3 / 2 + 2) break
+            }
+            val picked = ThemedParty.pick(found.values.toList(), count, avoid, java.util.Random())
+            ui.post { themedDone(run, theme, query, singers, count, picked, if (picked.isEmpty()) problem else null) }
+        }
+    }
+
+    private fun themedDone(run: Int, theme: String, query: String, singers: List<String>, asked: Int, picked: List<Song>, problem: Exception?) {
+        if (run != themeRun || isFinishing || !themeLayer.isShown) return
+        themeBusy = false
+        if (picked.isEmpty()) {
+            themedStatus(when (problem) {
+                null -> "No new songs found for “$theme”. Try another theme!"
+                is SearchException -> problem.message ?: "Search failed. Try again."
+                else -> { net.suspect(); "📡 Couldn't reach YouTube. Check the internet and try again." }
+            })
+            renderThemed()
+            return
+        }
+        // Fair turns: those who have sung (or are waiting) the least go first in each round
+        val load = HashMap(sungTonight())
+        queue.snapshot().forEach { it.singer.split(DUET_JOIN).forEach { p -> load.merge(p.lowercase(), 1, Int::plus) } }
+        val dealt = ThemedParty.deal(picked, singers, load, java.util.Random())
+        val singNow = mode == Mode.LOBBY && queue.isEmpty()
+        val added = queue.addAll(dealt.map { (song, singer) ->
+            QueueItem(song, singer, fromPhone = false, genres = Genres.detect(song.title, query), themed = true)
+        })
+        if (added == 0) { themedStatus("Those songs are already in the queue. Try another theme!"); renderThemed(); return }
+        val used = dealt.take(added).map { it.second }.distinctBy { it.lowercase() }
+        board.rememberPlayers(used)
+        hideThemed()
+        sfx.play(sfx.pop, 0.7f)
+        val people = if (used.size == 1) used[0] else "${used.size} singers"
+        toast("🎭 $theme: $added song${if (added == 1) "" else "s"} for $people" +
+            if (added < asked) " (all we could find)" else "")
+        if (singNow) startNext() else if (queuePanel.isShown) panelListMode()
+    }
+
+    // =====================================================================================
     // Intermission: "Next up!"
     // =====================================================================================
 
@@ -1227,17 +1517,18 @@ class MainActivity : Activity(), PartyBackend.Listener {
         }
     }
 
+    /** The queue item whose song is already in [history] (its score is showing). */
+    @Volatile private var recordedKey = 0L
+
     /**
-     * Songs each person has sung tonight (lower-case names), for the fair queue: the songs played
+     * Songs each person has sung tonight (lower-case names), for the fair queue: every song sung
      * tonight, plus the one being sung now. Called from the phones' threads too: it only reads.
      */
     private fun sungTonight(): Map<String, Int> {
-        val since = System.currentTimeMillis() - Leaderboard.TONIGHT_MS
-        val played = history.all().filter { it.time >= since }
         val counts = HashMap<String, Int>()
         fun count(singer: String) = singer.split(DUET_JOIN).forEach { p -> if (p.isNotBlank()) counts.merge(p.lowercase(), 1, Int::plus) }
-        played.forEach { count(it.singer) }
-        queue.current?.let { now -> if (played.none { it.song.id == now.song.id }) count(now.singer) }
+        history.tonight().forEach { count(it.singer) }
+        queue.current?.let { now -> if (now.key != recordedKey) count(now.singer) }
         return counts
     }
 
@@ -1713,7 +2004,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         if (mode == Mode.SCORE) return            // already showing (end of video and a tap at once)
         ui.removeCallbacks(finaleDone)
         val item = queue.current ?: return goLobby()
-        history.add(item.song, item.singer)   // for "🕘 Played", even when stopped early
+        history.add(item.song, item.singer)   // for "🕘 Played" and fair turns, even when stopped early
+        recordedKey = item.key
         cheers.save()
         // The room decides most of it: the phones' votes pull the random roll towards what they
         // thought (more so when more of the room voted), then the hype bar and past crowds count too
@@ -2509,6 +2801,25 @@ class MainActivity : Activity(), PartyBackend.Listener {
         panelBrowser.clear()                    // reloads with the new picks next time it opens
         lobbyBrowser.runQuickPick(0)
         toast(if (c.isInternational) "🌍 International mix" else "${c.flag} ${c.name}: music from there comes first")
+    }
+
+    // =====================================================================================
+    // Settings (⚙️), the search box's hint and voice search
+    // =====================================================================================
+
+    /**
+     * The lobby's search box shares its row with the buttons and the clock, so it is narrower with
+     * a 12-hour clock ("10:45 PM"): its hint then gets shorter instead of being cut off.
+     */
+    private fun fitSearchHint() {
+        val box = findViewById<EditText>(R.id.lobbySearch)
+        val full = getString(R.string.search_hint)
+        val short = getString(R.string.search_hint_short)
+        box.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+            val room = right - left - box.totalPaddingLeft - box.totalPaddingRight
+            val hint = if (box.paint.measureText(full) <= room) full else short
+            if (box.hint?.toString() != hint) box.hint = hint
+        }
     }
 
     // ---- settings (the ⚙️ button): volumes, lobby music, fair queue, About ----
@@ -3350,14 +3661,15 @@ class MainActivity : Activity(), PartyBackend.Listener {
     }
 
     private fun hideAllOverlays() {
-        listOf(pickerLayer, sheetLayer, boardLayer, qrLayer, volumeLayer, aboutLayer, achLayer).forEach { it.visibility = View.GONE }
+        if (themeLayer.isShown) themeRun++                 // a themed search still running is dropped
+        listOf(pickerLayer, themeLayer, sheetLayer, boardLayer, qrLayer, volumeLayer, aboutLayer, achLayer).forEach { it.visibility = View.GONE }
         if (recapLayer.isShown) hideRecap()
         if (countryLayer.isShown) hideCountries()
         hideKeyboard()
         lockFocus()
     }
 
-    private fun anyOverlayOpen() = pickerLayer.isShown || sheetLayer.isShown || boardLayer.isShown || qrLayer.isShown ||
+    private fun anyOverlayOpen() = pickerLayer.isShown || themeLayer.isShown || sheetLayer.isShown || boardLayer.isShown || qrLayer.isShown ||
         countryLayer.isShown || volumeLayer.isShown || aboutLayer.isShown || achLayer.isShown || recapLayer.isShown
 
     /**
@@ -3369,8 +3681,8 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val rule = if (block) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
         listOf(lobby, queuePanel, hud, intermission).forEach { (it as? ViewGroup)?.descendantFocusability = rule }
         // Pop-ups stacked on another (a sheet over the picker) only keep the top one reachable
-        val top = listOf(recapLayer, volumeLayer, aboutLayer, achLayer, sheetLayer, countryLayer, qrLayer, boardLayer, pickerLayer).firstOrNull { it.isShown }
-        listOf(pickerLayer, boardLayer, qrLayer, countryLayer, sheetLayer, volumeLayer, aboutLayer, achLayer, recapLayer).forEach {
+        val top = listOf(recapLayer, volumeLayer, aboutLayer, achLayer, sheetLayer, countryLayer, qrLayer, boardLayer, pickerLayer, themeLayer).firstOrNull { it.isShown }
+        listOf(pickerLayer, themeLayer, boardLayer, qrLayer, countryLayer, sheetLayer, volumeLayer, aboutLayer, achLayer, recapLayer).forEach {
             (it as? ViewGroup)?.descendantFocusability =
                 if (top == null || it === top) ViewGroup.FOCUS_AFTER_DESCENDANTS else ViewGroup.FOCUS_BLOCK_DESCENDANTS
         }
@@ -3448,6 +3760,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private companion object {
         const val REQ_VOICE = 42
         const val REQ_MIC = 43
+        const val REQ_THEME_VOICE = 44
         /** Unloads the YouTube player's captions; harmless if the page differs. */
         const val HIDE_CAPTIONS_JS = "(function(){try{var p=window.player;" +
             "if(p&&p.unloadModule){p.unloadModule('captions');p.unloadModule('cc');}" +

@@ -15,10 +15,13 @@
         android:importantForAccessibility="noHideDescendants"
         android:orientation="vertical">
 
+        <!-- A TextView cuts its text's glow off one glow-radius past the text's sides, and the
+             mic's head touches its left side: a fixed width (centred) leaves room for all of it -->
         <TextView
             android:id="@+id/introMic"
-            android:layout_width="wrap_content"
+            android:layout_width="220dp"
             android:layout_height="wrap_content"
+            android:gravity="center"
             android:shadowColor="@color/neon_pink"
             android:shadowRadius="40"
             android:text="🎤"
