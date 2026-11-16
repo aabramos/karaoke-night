@@ -14,6 +14,7 @@ Party karaoke for Android TV (built for the Android TV, targeting NVIDIA Shield)
 - Solo and duet modes, a saved players list, and a score just for fun (this app doesn't listen to the singer).
 - Song queue with a "Next up" countdown between singers. The queue is saved. If the app closes, everything is still there when it reopens.
 - A way to dedicate a music - type a name when adding a song (TV or phone) and the TV shows "Ana sings this for Bia" for 5 seconds before it starts.
+- Themed party (TV only): type or say a theme (Disney, 80s, Queen…) or pick one of the country's ideas, choose the singers (or add new ones) and how many songs (up to 30, and 50 in the queue in all). The app finds that many different songs, leaves out duets and anything already queued or sung in the last 12 hours, and deals them to the singers in rounds after the songs already waiting, whether or not the fair queue is on.
 - Guests add songs from their phones by scanning a QR code, without interrupting the singer.
 - Hall of fame (solo and duets, tonight and all time), personal stats (best score, favourite song, parties in a row), 45 achievements (scores, emojis from phones, special dates such as Christmas, Carnival and Halloween), 18 genres to collect, and a "Close the night" awards show.
 - Surprise me: a random famous song.
@@ -69,6 +70,7 @@ By band:
 | Lobby | QR card, then OK | Big code for phones |
 | Lobby | 🌍 | Party country |
 | Lobby | 🏆 | Hall of fame and achievements. ▼ scrolls a list, OK on a name shows their stats and achievements (▲▼ scroll) |
+| Lobby | 🎭 | Themed party: theme, singers (OK picks or un-picks), − / + songs, then **Fill the queue** (**Start the party!** when the queue is empty) |
 | Lobby | 🌙 | Close the night: awards show (OK next, ◀ back, BACK leave) |
 | Lobby | ⚙️ | Settings: volume sliders, lobby music on/off, fair queue on/off ("Sing next" and "later" still work), About. ▼ from the last slider goes to the right-hand column |
 | Lobby | BACK twice | Exit |
@@ -154,7 +156,7 @@ Requirements: Android Gradle Plugin 9.5, Gradle 9.6, JDK 17. Min Android 7.0.
 | What | Where |
 |---|---|
 | Score range and spread | `Scores.kt`, `Judge.ODDS` |
-| How much cheers move the score | `Scores.kt`, `Judge.CROWD_MAX`, and `Party.kt`, `REACTION_VOTES` |
+| How much cheers move the score | `Scores.kt`, `Judge.CROWD_MAX`, and `Phones.kt`, `REACTION_VOTES` |
 | Judge comments | `Scores.kt`, `Judge.lines` |
 | Rare judges and emoji crowd | `Scores.kt`, `Extras.CHANCE`, `MIN_SCORE`, `TOP_JUDGES`, `CROWD_EMOJIS` |
 | Hype bar (how fast it fills and drains, bonus) | `Scores.kt`, `Hype.PER_CHEER`, `DRAIN_PER_S`, `BONUS` |
@@ -166,7 +168,21 @@ Requirements: Android Gradle Plugin 9.5, Gradle 9.6, JDK 17. Min Android 7.0.
 | Lobby music | `res/raw/lobby.ogg`; levels in `Audio.kt`, `LobbyMusic` |
 | Random stage names | `MainActivity.kt`, `STAGE_NAMES` |
 | Autostart delay, finale timing | `MainActivity.kt`, `AUTOSTART_MS`, `FINALE_LEAD_S`, `FINALE_MS` |
-| Max songs per singer | `Party.kt`, `MAX_PER_SINGER` |
+| Max songs per singer | `Queue.kt`, `MAX_PER_SINGER` (songs dealt by a themed party don't count) |
+| Themed party (songs per party, searches, what counts as a repeat) | `ThemedParty.kt` |
+
+## Source code
+
+All in `app/src/main/java/com/karaoketv/`:
+
+| File | What's in it |
+|---|---|
+| `MainActivity.kt` | The one screen: lobby, pop-ups, singing, score, in sections marked with `// ====` |
+| `Songs.kt`, `Queue.kt`, `ThemedParty.kt` | Songs and names, the queue (fair order, saving), themed parties |
+| `SongSearch.kt`, `SongBrowser.kt`, `Countries.kt`, `Surprise.kt`, `Genres.kt` | YouTube search and caches, the song lists, quick picks, 🎲, genres |
+| `Scores.kt`, `Leaderboard.kt`, `History.kt`, `Achievements.kt`, `Recap.kt` | Scoring and hype, the hall of fame, songs sung, achievements, the night's awards |
+| `Phones.kt`, `PartyServer.java`, `QrCode.java`, `assets/remote.html` | The guests' phones: what the TV answers, the local web server, the QR code, the party page |
+| `Views.kt`, `Audio.kt`, `ImageLoader.kt`, `Connection.kt`, `CrashReport.kt` | Drawn views and scaling, music and sounds, thumbnails, internet checks, crash screen |
 
 ## Troubleshooting
 
