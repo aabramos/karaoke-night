@@ -180,6 +180,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private fun glowRoom(v: View) {
         if (v is ViewGroup) for (i in 0 until v.childCount) glowRoom(v.getChildAt(i))
         if (v !is TextView || v.shadowRadius <= 0f) return
+        // A glowing label on its own pill (🔥 HYPE): the pill holds the glow, and padding would only
+        // make the pill bigger and, with the margins pulled in, push it over its neighbour
+        if (v.background != null) return
         // A glow fades out over about twice its radius: room for all of it, so even when the text is
         // drawn on its own (an animation layer, a fade) nothing of the glow is cut into a box
         val r = Math.ceil((2 * v.shadowRadius + maxOf(Math.abs(v.shadowDx), Math.abs(v.shadowDy))).toDouble()).toInt()
@@ -895,6 +898,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             listOf(
                 "🗑 Clear the queue" to {
                     val gone = queue.clear()
+                    endThemed()                                     // starting over: no more themed rounds
                     if (gone > 0) toast("🗑 Queue cleared: $gone song${if (gone == 1) "" else "s"} taken out")
                 },
                 "Cancel" to {},
@@ -1200,7 +1204,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
     private var themeCount = 0
     private var themeCountTouched = false
     /** Bumped when the pop-up closes, so a search still running is ignored when it comes back. */
-    private var themeRun = 0
+    @Volatile private var themeRun = 0
     private var themeBusy = false
 
     private fun setupThemed() {
@@ -1405,21 +1409,57 @@ class MainActivity : Activity(), PartyBackend.Listener {
             !net.online -> { themedStatus("📡 Themed parties need the internet. Check the Wi-Fi and try again."); return }
         }
         val query = themeIdea?.takeIf { ThemedParty.ideaName(it.first).equals(theme, ignoreCase = true) }?.second ?: theme
-        val count = themeCount.coerceIn(1, room)
-        val singers = themeChosen.toList()
-        val avoid = queue.snapshot().map { it.song } + listOfNotNull(queue.current?.song) +
-            history.tonight().map { Song(it.id, "", "", "") } +               // the same videos sung tonight…
-            board.tonightAll().map { Song("", it.song, "", "") }              // …and other versions of those songs
+        val plan = ThemedPlan(theme, query, themeChosen.toList(), themeCount.coerceIn(1, room))
         val run = ++themeRun
         themeBusy = true
         hideKeyboard()
         themedStatus("🔎 Looking for “$theme” songs…")
         renderThemed()
+        themedFind(plan, plan.count, { run == themeRun }) { picked, problem ->
+            if (run != themeRun || !themeLayer.isShown) return@themedFind
+            themeBusy = false
+            if (picked.isEmpty()) {
+                themedStatus(themedTrouble(theme, problem))
+                renderThemed()
+                return@themedFind
+            }
+            val singNow = mode == Mode.LOBBY && queue.isEmpty()
+            val added = themedDeal(plan, picked)
+            if (added.isEmpty()) { themedStatus("Those songs are already in the queue. Try another theme!"); renderThemed(); return@themedFind }
+            themedPlan = plan                                   // asked again when its songs run out
+            hideThemed()
+            themedAdded(plan, added, picked.size < plan.count)
+            if (singNow) startNext() else if (queuePanel.isShown) panelListMode()
+        }
+    }
+
+    /** A themed party that's running: when the queue runs out, the singers are asked if they want more. */
+    private class ThemedPlan(val theme: String, val query: String, val singers: List<String>, val count: Int) {
+        /** The songs it has dealt so far, so another round brings different ones. */
+        val used = ArrayList<Song>()
+    }
+
+    @Volatile private var themedPlan: ThemedPlan? = null
+
+    /**
+     * Searches [plan]'s theme on the worker thread (a few ways, until there are enough different
+     * songs) and hands [done] up to [count] new ones, or the problem when there are none.
+     * Left out: songs waiting or playing, sung tonight, or already dealt by this themed party.
+     * Stops early once [wanted] says no (the pop-up closed, or the themed party ended).
+     */
+    private fun themedFind(plan: ThemedPlan, count: Int, wanted: () -> Boolean, done: (List<Song>, Exception?) -> Unit) {
+        val avoid = queue.snapshot().map { it.song } + listOfNotNull(queue.current?.song) + plan.used +
+            history.tonight().map { Song(it.id, "", "", "") } +               // the same videos sung tonight…
+            board.tonightAll().map { Song("", it.song, "", "") }              // …and other versions of those songs
         io.execute {
             val found = LinkedHashMap<String, Song>()
             var problem: Exception? = null
-            for (q in ThemedParty.queries(query)) {
-                if (run != themeRun) return@execute
+            // On a slow network one search can take 20 s: no new search after this, so the screen
+            // (and the worker it shares with the song lists) isn't kept waiting for a minute
+            val deadline = android.os.SystemClock.elapsedRealtime() + ThemedParty.SEARCH_BUDGET_MS
+            for (q in ThemedParty.queries(plan.query)) {
+                if (!wanted()) return@execute                      // closed or replaced: no more searching
+                if (found.isNotEmpty() && android.os.SystemClock.elapsedRealtime() > deadline) break
                 try {
                     search.search(q).forEach { found.putIfAbsent(it.id, it) }
                     problem = null
@@ -1430,39 +1470,89 @@ class MainActivity : Activity(), PartyBackend.Listener {
                 if (ThemedParty.fresh(found.values.toList(), avoid).size >= count * 3 / 2 + 2) break
             }
             val picked = ThemedParty.pick(found.values.toList(), count, avoid, java.util.Random())
-            ui.post { themedDone(run, theme, query, singers, count, picked, if (picked.isEmpty()) problem else null) }
+            ui.post { if (!isFinishing) done(picked, if (picked.isEmpty()) problem else null) }
         }
     }
 
-    private fun themedDone(run: Int, theme: String, query: String, singers: List<String>, asked: Int, picked: List<Song>, problem: Exception?) {
-        if (run != themeRun || isFinishing || !themeLayer.isShown) return
-        themeBusy = false
-        if (picked.isEmpty()) {
-            themedStatus(when (problem) {
-                null -> "No new songs found for “$theme”. Try another theme!"
-                is SearchException -> problem.message ?: "Search failed. Try again."
-                else -> { net.suspect(); "📡 Couldn't reach YouTube. Check the internet and try again." }
-            })
-            renderThemed()
-            return
-        }
-        // Fair turns: those who have sung (or are waiting) the least go first in each round
+    private fun themedTrouble(theme: String, problem: Exception?): String = when (problem) {
+        null -> "No new songs found for “$theme”. Try another theme!"
+        is SearchException -> problem.message ?: "Search failed. Try again."
+        else -> { net.suspect(); "📡 Couldn't reach YouTube. Check the internet and try again." }
+    }
+
+    /**
+     * Deals [picked] to the plan's singers in fair rounds (those who have sung or are waiting the
+     * least go first) and adds them after what's waiting. Returns the songs that went in.
+     */
+    private fun themedDeal(plan: ThemedPlan, picked: List<Song>): List<QueueItem> {
         val load = HashMap(sungTonight())
         queue.snapshot().forEach { it.singer.split(DUET_JOIN).forEach { p -> load.merge(p.lowercase(), 1, Int::plus) } }
-        val dealt = ThemedParty.deal(picked, singers, load, java.util.Random())
-        val singNow = mode == Mode.LOBBY && queue.isEmpty()
+        val dealt = ThemedParty.deal(picked, plan.singers, load, java.util.Random())
         val added = queue.addAll(dealt.map { (song, singer) ->
-            QueueItem(song, singer, fromPhone = false, genres = Genres.detect(song.title, query), themed = true)
+            QueueItem(song, singer, fromPhone = false, genres = Genres.detect(song.title, plan.query), themed = true)
         })
-        if (added.isEmpty()) { themedStatus("Those songs are already in the queue. Try another theme!"); renderThemed(); return }
-        val used = added.map { it.singer }.distinctBy { it.lowercase() }
-        board.rememberPlayers(used)
-        hideThemed()
+        plan.used += added.map { it.song }
+        while (plan.used.size > ThemedParty.MAX_USED) plan.used.removeAt(0)
+        board.rememberPlayers(added.map { it.singer }.distinctBy { it.lowercase() })
+        return added
+    }
+
+    private fun themedAdded(plan: ThemedPlan, added: List<QueueItem>, short: Boolean) {
         sfx.play(sfx.pop, 0.7f)
+        val used = added.map { it.singer }.distinctBy { it.lowercase() }
         val people = if (used.size == 1) used[0] else "${used.size} singers"
-        toast("🎭 $theme: ${added.size} song${if (added.size == 1) "" else "s"} for $people" +
-            if (added.size < asked) " (all we could find)" else "")
-        if (singNow) startNext() else if (queuePanel.isShown) panelListMode()
+        toast("🎭 ${plan.theme}: ${added.size} song${if (added.size == 1) "" else "s"} for $people" +
+            if (short) " (all we could find)" else "")
+    }
+
+    /**
+     * The queue ran out during a themed party (whatever else was added meanwhile): one more round
+     * of the same theme, singers and number of songs, with different songs? No: back to the lobby.
+     */
+    private fun askKeepThemed(plan: ThemedPlan) {
+        if (mode != Mode.LOBBY || !queue.isEmpty() || anyOverlayOpen()) return
+        showSheet(
+            "🎭 Keep the “${plan.theme}” party going?",
+            "The queue is empty. Another ${plan.count} different “${plan.theme}” songs for " +
+                plan.singers.joinToString(", ").let { if (it.length > 80) "${plan.singers.size} singers" else it } + "?",
+            listOf(
+                "🎭 Yes, more songs!" to { themedMore(plan) },
+                "No, back to the lobby" to { endThemed() },
+            ),
+            onCancel = { endThemed() },
+        )
+    }
+
+    private fun themedMore(plan: ThemedPlan) {
+        if (themedPlan !== plan) return
+        val room = ThemedParty.maxCount(PartyQueue.MAX - queue.size)
+        if (room == 0) { toast("The queue is full. Sing a few first!"); return }
+        toast("🔎 Finding more “${plan.theme}” songs…")
+        themedFind(plan, minOf(plan.count, room), { themedPlan === plan }) { picked, problem ->
+            if (themedPlan !== plan || mode != Mode.LOBBY) return@themedFind   // ended, or a song started meanwhile
+            if (picked.isEmpty()) {
+                if (problem == null) {
+                    endThemed()
+                    toast("🎭 That's every “${plan.theme}” song we could find. Pick a new theme!")
+                } else {
+                    toast(themedTrouble(plan.theme, problem))
+                    showSheet("🎭 Try again?", "Couldn't find more “${plan.theme}” songs just now.", listOf(
+                        "🔄 Try again" to { themedMore(plan) },
+                        "No, back to the lobby" to { endThemed() },
+                    ), onCancel = { endThemed() })
+                }
+                return@themedFind
+            }
+            val added = themedDeal(plan, picked)
+            if (added.isEmpty()) { endThemed(); return@themedFind }
+            themedAdded(plan, added, picked.size < plan.count)
+            if (mode == Mode.LOBBY && !anyOverlayOpen()) startNext()
+        }
+    }
+
+    /** The themed party is over: the queue running out goes back to the lobby without asking. */
+    private fun endThemed() {
+        themedPlan = null
     }
 
     // =====================================================================================
@@ -2309,6 +2399,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
         val next = queue.peekNext()
         findViewById<TextView>(R.id.scNext).text =
             if (next != null) "Next up: ${next.singer}   ·   ${if (isTouch) "Tap" else "OK"} to continue ($autoNextIn)"
+            else if (themedPlan != null) "Queue is empty   ·   ${if (isTouch) "Tap" else "OK"} for more 🎭 ${themedPlan?.theme} ($autoNextIn)"
             else "Queue is empty   ·   ${if (isTouch) "Tap" else "OK"} for the lobby ($autoNextIn)"
     }
 
@@ -2320,7 +2411,9 @@ class MainActivity : Activity(), PartyBackend.Listener {
         scoreLayer.visibility = View.GONE
         queue.current = null
         QueueStore.save(prefs, queue)
-        if (queue.isEmpty()) goLobby() else startNext()
+        if (!queue.isEmpty()) return startNext()
+        goLobby()
+        themedPlan?.let { plan -> ui.postDelayed({ if (themedPlan === plan) askKeepThemed(plan) }, 600) }
     }
 
     // =====================================================================================
@@ -3405,6 +3498,7 @@ class MainActivity : Activity(), PartyBackend.Listener {
             toast("🌙 Nobody has sung tonight yet. Sing first, then close the night!")
             return
         }
+        endThemed()                                           // the night is over, and so is its themed party
         val tonightsCheers = cheers.tonight()
         val night = Achievements.nightOf(System.currentTimeMillis())
         val unlocked = runCatching {

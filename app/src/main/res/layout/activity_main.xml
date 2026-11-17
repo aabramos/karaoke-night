@@ -44,13 +44,14 @@
         android:importantForAccessibility="no"
         android:visibility="gone" />
 
-    <!-- Revealed only once the bar is full: until then nobody is told what the bar is -->
+    <!-- Revealed only once the bar is full: until then nobody is told what the bar is.
+         Beside the bar's top end, clear of it (the bar ends at 15dp) -->
     <TextView
         android:id="@+id/hypeLabel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="start|center_vertical"
-        android:layout_marginStart="22dp"
+        android:layout_marginStart="24dp"
         android:background="@drawable/chip_bg"
         android:fontFamily="sans-serif-black"
         android:importantForAccessibility="no"

@@ -8,6 +8,10 @@ package com.karaoketv
 object ThemedParty {
     const val MIN_SONGS = 1
     const val MAX_SONGS = 30
+    /** Songs a themed party remembers having dealt (to bring new ones each round). */
+    const val MAX_USED = 300
+    /** How long a themed party keeps trying more searches (once it has some songs). */
+    const val SEARCH_BUDGET_MS = 25_000L
 
     private val DUET = Regex("""\b(duet|duets|dueto|duetos|duo|duos)\b""", RegexOption.IGNORE_CASE)
     private val WORD = Regex("""[\p{L}\p{N}']+""")
